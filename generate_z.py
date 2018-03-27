@@ -58,17 +58,37 @@ class DCGAN(object):
 
         self.is_training = tf.placeholder(tf.bool, name='is_training')        
         self.z_gen, _ = self.generate_z(self.images_)
+
         self.G = self.generator(self.z_gen)
-        
+        # self.D, self.D_logits = self.discriminator(self.images, reuse=False)
+        # self.D_, self.D_logits_, = self.discriminator(self.G, reuse=True)
+
+        # self.g_loss_actual = tf.reduce_mean(
+        #     tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+
+        # if F.error_conceal == True:
+        #     self.mask = tf.placeholder(tf.float32, [F.batch_size] + self.image_shape, name='mask')
+        #     self.contextual_loss = tf.reduce_sum(tf.contrib.layers.flatten(
+        #                                          tf.abs(tf.multiply(self.mask, self.G) -
+        #                                          tf.multiply(self.mask, self.images))), 1)
+        #     self.perceptual_loss = self.g_loss_actual
+        #     self.complete_loss = self.contextual_loss + F.lam * self.perceptual_loss
+        #     self.grad_complete_loss = tf.gradients(self.complete_loss, self.z_gen)
+
+        # else:
         if F.vggface_loss == True:
             vgg_net_inp = tf.concat([self.G, self.images], 0)
             print (vgg_net_inp.get_shape())
 
             #Reduce mean values from pixel values
-            vgg_net_inp = ((vgg_net_inp + 1) * 127.5)# - [F.batch_size * 2, 129.18628, 104.76238,  93.59396]
+            rgb_mean = tf.constant([129.18628, 104.76238,  93.59396], dtype=tf.float32)
+            rgb_mean = tf.reshape(rgb_mean, [1, 1, 1, 3])
+
+            vgg_net_inp = vgg_net_inp - rgb_mean
+
             vgg_net = vggface.vgg_face('vgg-face.mat', vgg_net_inp)
 
-            self.loss = tf.reduce_mean(tf.square(vgg_net['relu4_3'][:F.batch_size] - vgg_net['relu4_3'][F.batch_size:]))# + \
+            self.loss = tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))# + \
                         # tf.reduce_mean(tf.square(vgg_net[:F.batch_size] - vgg_net[F.batch_size:]))
 
         else:
@@ -86,7 +106,6 @@ class DCGAN(object):
         
         self.saver_gen = tf.train.Saver(self.g_vars)
         self.saver = tf.train.Saver(self.z_vars)
-
 
     def train(self):
         # main method for training conditonal GAN
@@ -106,7 +125,7 @@ class DCGAN(object):
 
         start_time = time.time()
 
-        self.load_G("checkpoint/celebA/model_weights")
+        self.load_G("checkpoint/celebA/model_weights_64")
 
         if F.load_chkpt:
             try:
@@ -227,6 +246,203 @@ class DCGAN(object):
         # print mask.shape
         return mask
 
+    def complete(self):
+        # this is main method which does inpainting (correctness experiment)
+        def make_dir(name):
+            # Works on python 2.7, where exist_ok arg to makedirs isn't available.
+            p = os.path.join(F.outDir, name)
+            if not os.path.exists(p):
+                os.makedirs(p)
+
+        make_dir('hats_imgs')
+        make_dir('completed')
+        make_dir('logs')
+
+        try:
+            tf.global_variables_initializer().run()
+        except:
+            tf.initialize_all_variables().run()
+
+        isLoaded = self.load(F.checkpoint_dir)
+        assert(isLoaded)
+
+        files = os.listdir('test_images/') #path of held out images for inpainitng experiment
+        print("Total files to inpaint :", len(files))
+        imgs = [x for x in files if 'img' in x]
+        keys = [x.replace('img', 'ky') for x in imgs]
+        nImgs = len(imgs)
+
+        batch_idxs = int(np.ceil(nImgs / F.batch_size))
+        print("Total batches:::", batch_idxs)
+        if F.maskType == 'random':
+            fraction_masked = F.fraction_masked
+            mask = np.ones(self.image_shape)
+            mask[np.random.random(self.image_shape[:2]) < fraction_masked] = 0.0
+
+        elif F.maskType == 'center':
+            assert(F.centerScale <= 0.5)
+            mask = np.ones(self.image_shape)
+            sz = F.output_size
+            l = int(F.output_size * F.centerScale)
+            u = int(F.output_size * (1.0-F.centerScale))
+            mask[l:u, l:u, :] = 0.0
+
+        elif F.maskType == 'left':
+            mask = np.ones(self.image_shape)
+            c = F.output_size // 2
+            mask[:,:c,:] = 0.0
+        
+        elif F.maskType == 'freehand_poly':
+            image = np.ones(self.image_shape)
+            mask = np.ones(self.image_shape)
+            if F.output_size == 128:
+                contours = 2 * np.array([ [10,10], [10, 15], [7, 30], [12, 54], [35, 50], [50, 48], [30, 25]])
+            else:
+                contours = np.array([ [10,10], [10, 15], [7, 30], [12, 54], [35, 50], [50, 48], [30, 25]])
+            black = (0, 0, 0)
+            cv2.fillPoly(image, pts = [contours], color = (0, 0, 0))
+            mask = image 
+
+
+
+        elif F.maskType == 'full':
+            mask = np.ones(self.image_shape)
+
+        elif F.maskType == 'grid':
+            mask = np.zeros(self.image_shape)
+            mask[::4,::4,:] = 1.0
+
+        elif F.maskType == 'checkboard':
+            if F.output_size == 128:
+                check_size = 64
+            else:
+                check_size = 32
+            num_tiles = int(self.image_shape[0] / (2 * check_size))
+            w1 = np.ones((check_size, check_size, 3))
+            b1 = np.zeros((check_size, check_size, 3))
+            stack1 = np.hstack((w1, b1))
+            stack2 = np.hstack((b1, w1))
+            atom = np.vstack((stack1, stack2))
+            mask = np.tile(atom, (num_tiles, num_tiles, 1))
+
+        else:
+            assert(False)
+
+        img_data_path = 'test_images/'
+
+        psnr_list, psnr_list2 = [], []
+        for idx in xrange(0, batch_idxs):
+            print("Processing batch number:  ", idx)
+            l = idx * F.batch_size
+            u = min((idx + 1) * F.batch_size, nImgs)
+            batchSz = u - l
+            batch_files = imgs[l:u]
+            batch_images = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
+                                   for batch_file in batch_files]).astype(np.float32)
+            
+            batch_files = keys[l:u]
+            batch_keypoints = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
+                                      for batch_file in batch_files]).astype(np.float32)
+
+            if batchSz < F.batch_size:
+                padSz = ((0, int(F.batch_size - batchSz)), (0,0), (0,0), (0,0))
+                batch_images = np.pad(batch_images, padSz, 'constant')
+                batch_images = batch_images.astype(np.float32)
+
+            # zhats = np.random.uniform(-1, 1, size=(F.batch_size, F.z_dim))
+            m = 0
+            v = 0
+
+            nRows = np.ceil(batchSz / 8)
+            nCols = min(8, batchSz)
+            save_images(batch_images[:batchSz,:,:,:], [nRows,nCols],
+                        os.path.join(F.outDir, 'before_' + str(idx) + '.png'))
+            masked_images = np.multiply(batch_images, mask)# - np.multiply(np.ones(batch_images.shape), 1.0 - mask)
+            save_images(np.array(masked_images - np.multiply(np.ones(batch_images.shape), 1.0 - mask)), [nRows,nCols],
+                        os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
+
+            for i in xrange(F.nIter):
+                fd = {
+                    self.mask: [mask] * F.batch_size,
+                    self.images: batch_images,
+                    self.is_training: False
+                }
+                run = [self.complete_loss, self.grad_complete_loss, self.G]
+                loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
+
+                for img in range(batchSz):
+                    with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
+                        f.write('{} {} '.format(i, loss[img]).encode())
+                        np.savetxt(f, zhats[img:img+1])
+
+                if i % F.outInterval == 0:
+                    print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
+
+                    inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
+                    completed = inv_masked_hat_images
+                    imgName = os.path.join(F.outDir,
+                                           'completed/_{:02d}_{:04d}.png'.format(idx, i))
+                    # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
+                    save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
+
+                if F.approach == 'adam':
+                    # Optimize single completion with Adam
+                    m_prev = np.copy(m)
+                    v_prev = np.copy(v)
+                    m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
+                    v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
+                    m_hat = m / (1 - F.beta1 ** (i + 1))
+                    v_hat = v / (1 - F.beta2 ** (i + 1))
+                    zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
+                    zhats = np.clip(zhats, -1, 1)
+
+                elif F.approach == 'hmc':
+                    # Sample example completions with HMC (not in paper)
+                    zhats_old = np.copy(zhats)
+                    loss_old = np.copy(loss)
+                    v = np.random.randn(self.batch_size, F.z_dim)
+                    v_old = np.copy(v)
+
+                    for steps in range(F.hmcL):
+                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
+                        zhats += F.hmcEps * v
+                        np.copyto(zhats, np.clip(zhats, -1, 1))
+                        loss, g, _, _ = self.sess.run(run, feed_dict=fd)
+                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
+
+                    for img in range(batchSz):
+                        logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
+                        logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
+                        accept = np.exp(logprob_old - logprob)
+                        if accept < 1 and np.random.uniform() > accept:
+                            np.copyto(zhats[img], zhats_old[img])
+
+                    F.hmcBeta *= F.hmcAnneal
+
+                else:
+                    assert(False)
+
+            inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)     
+            for i in range(len(masked_images)):
+                psnr_list2.append(self.get_psnr(batch_images[i], inv_masked_hat_images[i]))
+
+
+            blended_images = self.poisson_blend(batch_images, G_imgs, mask)
+            imgName = os.path.join(F.outDir, 'completed/{:02d}_blended.png'.format(idx))
+            save_images(blended_images[:batchSz,:,:,:], [nRows,nCols], imgName)
+            
+            for i in range(len(masked_images)):
+                psnr_list.append(self.get_psnr(batch_images[i], blended_images[i]))
+
+            print("After current batch | PSNR before blending::: ",  np.mean(psnr_list2))
+            print("After current batch | PSNR after blending::: ",  np.mean(psnr_list))
+
+        print ('Final | PSNR Before Blending:: ', np.mean(psnr_list2))
+        np.save(F.outDir + '/complete_psnr_after_blend.npy', np.array(psnr_list)) # For statistical testing
+
+        print ('Final | PSNR After Blending:: ', np.mean(psnr_list))
+        np.save(F.outDir + '/complete_psnr_before_blend.npy', np.array(psnr_list2)) # For statistical testing
+
     def generator(self, z):
         dim = 64
         k = 5
@@ -248,6 +464,31 @@ class DCGAN(object):
               h4 = deconv2d(h3, [F.batch_size, F.output_size, F.output_size, 3], k, k, 2, 2, name ='g_hdeconv5')
               h4 = tf.nn.tanh(h4, name = 'g_tanh')
               return h4
+
+    def discriminator(self, image, reuse=False):
+        with tf.variable_scope('D'):
+            if reuse:
+                tf.get_variable_scope().reuse_variables()
+
+            dim = 64
+            if F.output_size == 128:
+                  h0 = lrelu(conv2d(image, dim, name='d_h0_conv'))
+                  h1 = lrelu(batch_norm(name='d_bn1')(conv2d(h0, dim * 2, name='d_h1_conv'), self.is_training))
+                  h2 = lrelu(batch_norm(name='d_bn2')(conv2d(h1, dim * 4, name='d_h2_conv'), self.is_training))
+                  h3 = lrelu(batch_norm(name='d_bn3')(conv2d(h2, dim * 8, name='d_h3_conv'), self.is_training))
+                  h4 = lrelu(batch_norm(name='d_bn4')(conv2d(h3, dim * 16, name='d_h4_conv'), self.is_training))
+                  h4 = tf.reshape(h4, [F.batch_size, -1])
+                  h5 = linear(h4, 1, 'd_h5_lin')
+                  return tf.nn.sigmoid(h5), h5
+
+            else:
+                  h0 = lrelu(conv2d(image, dim, name='d_h0_conv'))
+                  h1 = lrelu(batch_norm(name='d_bn1')(conv2d(h0, dim * 2, name='d_h1_conv'), self.is_training))
+                  h2 = lrelu(batch_norm(name='d_bn2')(conv2d(h1, dim * 4, name='d_h2_conv'), self.is_training))
+                  h3 = lrelu(batch_norm(name='d_bn3')(conv2d(h2, dim * 8, name='d_h3_conv'), self.is_training))
+                  h4 = tf.reshape(h3, [F.batch_size, -1])
+                  h5 = linear(h4, 1, 'd_h5_lin')
+                  return tf.nn.sigmoid(h5), h5
 
     def generate_z(self, image):
         with tf.variable_scope('Z'):
@@ -279,7 +520,7 @@ class DCGAN(object):
         self.saver.save(self.sess, os.path.join(checkpoint_dir, model_name), global_step=step)
 
     def load_G(self, checkpoint_dir):
-        print(" [*] Reading checkpoints...")
+        print(" [*] Reading checkpoints of G...")
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
