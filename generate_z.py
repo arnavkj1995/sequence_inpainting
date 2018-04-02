@@ -53,58 +53,65 @@ class DCGAN(object):
                                        name='real_images')
         
         self.mask = tf.placeholder(tf.float32, [F.batch_size, F.output_size, F.output_size, 3], name='mask')
+        self.is_training = tf.placeholder(tf.bool, name='is_training')        
+        self.get_z_init = tf.placeholder(tf.bool, name='get_z_init')
 
         self.images_ = tf.multiply(self.mask, self.images)
-
-        self.is_training = tf.placeholder(tf.bool, name='is_training')        
-        self.z_gen, _ = self.generate_z(self.images_)
+        self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(self.images_), lambda: tf.placeholder(tf.float32, [F.batch_size, 100], name='z_gen'))
+        # if self.get_z_init:
+        #     self.images_ = tf.multiply(self.mask, self.images)
+        #     self.z_gen, _ = 
+        # else:
+        #     self.z_gen = 
 
         self.G = self.generator(self.z_gen)
-        # self.D, self.D_logits = self.discriminator(self.images, reuse=False)
-        # self.D_, self.D_logits_, = self.discriminator(self.G, reuse=True)
 
-        # self.g_loss_actual = tf.reduce_mean(
-        #     tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+        if F.error_conceal == True:
+            self.D, self.D_logits = self.discriminator(self.images, reuse=False)
+            self.D_, self.D_logits_, = self.discriminator(self.G, reuse=True)
 
-        # if F.error_conceal == True:
-        #     self.mask = tf.placeholder(tf.float32, [F.batch_size] + self.image_shape, name='mask')
-        #     self.contextual_loss = tf.reduce_sum(tf.contrib.layers.flatten(
-        #                                          tf.abs(tf.multiply(self.mask, self.G) -
-        #                                          tf.multiply(self.mask, self.images))), 1)
-        #     self.perceptual_loss = self.g_loss_actual
-        #     self.complete_loss = self.contextual_loss + F.lam * self.perceptual_loss
-        #     self.grad_complete_loss = tf.gradients(self.complete_loss, self.z_gen)
+            self.g_loss_actual = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
 
-        # else:
-        if F.vggface_loss == True:
-            vgg_net_inp = tf.concat([self.G, self.images], 0)
-            print (vgg_net_inp.get_shape())
-
-            #Reduce mean values from pixel values
-            rgb_mean = tf.constant([129.18628, 104.76238,  93.59396], dtype=tf.float32)
-            rgb_mean = tf.reshape(rgb_mean, [1, 1, 1, 3])
-
-            vgg_net_inp = vgg_net_inp - rgb_mean
-
-            vgg_net = vggface.vgg_face('vgg-face.mat', vgg_net_inp)
-
-            self.loss = tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))# + \
-                        # tf.reduce_mean(tf.square(vgg_net[:F.batch_size] - vgg_net[F.batch_size:]))
+            # self.mask = tf.placeholder(tf.float32, [F.batch_size] + self.image_shape, name='mask')
+            self.contextual_loss = tf.reduce_sum(tf.contrib.layers.flatten(
+                                                 tf.abs(tf.multiply(self.mask, self.G) -
+                                                 tf.multiply(self.mask, self.images))), 1)
+            self.perceptual_loss = self.g_loss_actual
+            self.complete_loss = self.contextual_loss + F.lam * self.perceptual_loss
+            self.grad_complete_loss = tf.gradients(self.complete_loss, self.z_gen)
 
         else:
-            self.loss = tf.reduce_mean(tf.square(self.G - self.images))
+            if F.vggface_loss == True:
+                vgg_net_inp = tf.concat([self.G, self.images], 0)
+                print (vgg_net_inp.get_shape())
 
+                #Reduce mean values from pixel values
+                rgb_mean = tf.constant([129.18628, 104.76238,  93.59396], dtype=tf.float32)
+                rgb_mean = tf.reshape(rgb_mean, [1, 1, 1, 3])
 
+                vgg_net_inp = vgg_net_inp - rgb_mean
+
+                vgg_net = vggface.vgg_face('vgg-face.mat', vgg_net_inp)
+
+                self.loss = tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))# + \
+                            # tf.reduce_mean(tf.square(vgg_net[:F.batch_size] - vgg_net[F.batch_size:]))
+
+            else:
+                self.loss = tf.reduce_mean(tf.square(self.G - self.images))
+            tf.summary.scalar('loss', self.loss)
+            
         # create summaries  for Tensorboard visualization
-        tf.summary.scalar('loss', self.loss)
+        
 
         self.g_loss = tf.constant(0) 
 
         t_vars = tf.trainable_variables()
         self.z_vars = [var for var in t_vars if 'Z/z_' in var.name]
         self.g_vars = [var for var in t_vars if 'G/g_' in var.name]
-        
-        self.saver_gen = tf.train.Saver(self.g_vars)
+        self.d_vars = [var for var in t_vars if 'G/d_' in var.name]
+
+        self.saver_gen = tf.train.Saver(self.g_vars + self.d_vars)
         self.saver = tf.train.Saver(self.z_vars)
 
     def train(self):
@@ -125,7 +132,7 @@ class DCGAN(object):
 
         start_time = time.time()
 
-        self.load_G("checkpoint/celebA/model_weights_64")
+        self.load_G("checkpoint/celebA/model_weights_128")
 
         if F.load_chkpt:
             try:
@@ -155,7 +162,7 @@ class DCGAN(object):
                 masks = self.next_mask()
                 train_summary, _, zloss = self.sess.run(
                         [self.summary_op, z_optim,  self.loss],
-                        feed_dict={global_step: counter, self.mask: masks, self.is_training: True})
+                        feed_dict={global_step: counter, self.mask: masks, self.is_training: True, self.get_z_init: True})
                 writer.add_summary(train_summary, counter)
 
                 print(("Iteration: [%6d] mse loss:%.2e")
@@ -264,6 +271,8 @@ class DCGAN(object):
             tf.initialize_all_variables().run()
 
         isLoaded = self.load(F.checkpoint_dir)
+        self.load_G("checkpoint/celebA/model_weights_" + str(F.output_size))
+
         assert(isLoaded)
 
         files = os.listdir('test_images/') #path of held out images for inpainitng experiment
@@ -361,11 +370,15 @@ class DCGAN(object):
             save_images(np.array(masked_images - np.multiply(np.ones(batch_images.shape), 1.0 - mask)), [nRows,nCols],
                         os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
 
+            zhats = self.sess.run(self.z_gen, feed_dict = {self.images: batch_images, \
+                                        self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
             for i in xrange(F.nIter):
                 fd = {
+                    self.z_gen: zhats,
                     self.mask: [mask] * F.batch_size,
                     self.images: batch_images,
-                    self.is_training: False
+                    self.is_training: False,
+                    self.get_z_init: False,
                 }
                 run = [self.complete_loss, self.grad_complete_loss, self.G]
                 loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
@@ -449,8 +462,8 @@ class DCGAN(object):
         with tf.variable_scope("G"):
               s2, s4, s8, s16 = int(F.output_size / 2), int(F.output_size / 4), int(F.output_size / 8), int(F.output_size / 16)
 
-              h0 = linear(z, 4 * 4 * dim * 16, 'g_lin')
-              h0 = tf.reshape(h0, [F.batch_size, 4, 4, dim * 16])
+              h0 = linear(z, s16 * s16 * dim * 16, 'g_lin')
+              h0 = tf.reshape(h0, [F.batch_size, s16, s16, dim * 16])
 
               h1 = deconv2d(h0, [F.batch_size, s8, s8, dim * 8], k, k, 2, 2, name = 'g_deconv1')
               h1 = tf.nn.relu(batch_norm(name = 'g_bn1')(h1, self.is_training))
@@ -510,7 +523,7 @@ class DCGAN(object):
                   h3 = lrelu(batch_norm(name='z_bn3')(conv2d(h2, dim * 8, name='z_h3_conv'), self.is_training))
                   h4 = tf.reshape(h3, [F.batch_size, -1])
                   h5 = linear(h4, 100, 'z_h5_lin')
-                  return tf.nn.tanh(h5), h5
+                  return tf.nn.tanh(h5)
 
     def save(self, checkpoint_dir, step=0):
         model_name = "model"

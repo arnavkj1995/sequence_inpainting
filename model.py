@@ -196,34 +196,6 @@ class DCGAN(object):
         coord.request_stop()
         coord.join(threads)
 
-    def poisson_blend(self, imgs1, imgs2, mask):
-        # call this while performing correctness experiment
-        out = np.zeros(imgs1.shape)
-
-        for i in range(0, len(imgs1)):
-            img1 = (imgs1[i] + 1.) / 2.0
-            img2 = (imgs2[i] + 1.) / 2.0
-            out[i] = np.clip((poissonblending.blend(img1, img2, 1 - mask) - 0.5) * 2, -1.0, 1.0)
-
-        return out.astype(np.float32)
-
-    def poisson_blend2(self, imgs1, imgs2, mask):
-        # call this while performing consistency experiment
-        out = np.zeros(imgs1.shape)
-
-        for i in range(0, len(imgs1)):
-            img1 = (imgs1[i] + 1.) / 2.0
-            img2 = (imgs2[i] + 1.) / 2.0
-            out[i] = np.clip((poissonblending.blend(img1, img2, 1 - mask[i]) - 0.5) * 2, -1.0, 1.0)
-
-        return out.astype(np.float32)
-
-    def get_psnr(self, img_true, img_gen):
-        return compare_psnr(img_true.astype(np.float32), img_gen.astype(np.float32))
-
-    def get_mse(self, img_true, img_gen):
-        return compare_mse(img_true.astype(np.float32), img_gen.astype(np.float32))
-
     def discriminator(self, image, reuse=False):
         with tf.variable_scope('D'):
             if reuse:
@@ -255,8 +227,8 @@ class DCGAN(object):
         with tf.variable_scope("G"):
               s2, s4, s8, s16 = int(F.output_size / 2), int(F.output_size / 4), int(F.output_size / 8), int(F.output_size / 16)
 
-              h0 = linear(z, 4 * 4 * dim * 16, 'g_lin')
-              h0 = tf.reshape(h0, [F.batch_size, 4, 4, dim * 16])
+              h0 = linear(z, s16 * s16 * dim * 16, 'g_lin')
+              h0 = tf.reshape(h0, [F.batch_size, s16, s16, dim * 16])
 
               h1 = deconv2d(h0, [F.batch_size, s8, s8, dim * 8], k, k, 2, 2, name = 'g_deconv1')
               h1 = tf.nn.relu(batch_norm(name = 'g_bn1')(h1, self.is_training))

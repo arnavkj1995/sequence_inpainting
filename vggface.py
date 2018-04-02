@@ -7,13 +7,15 @@ def vgg_face(param_path, input_maps):
 
     data = loadmat(param_path)
 
-    # read meta info
-    meta = data['meta']
-    classes = meta['classes']
-    class_names = classes[0][0]['description'][0][0]
-    normalization = meta['normalization']
-    average_image = np.squeeze(normalization[0][0]['averageImage'][0][0][0][0])
-    image_size = np.squeeze(normalization[0][0]['imageSize'][0][0])
+    # # read meta info
+    # meta = data['meta']
+    # classes = meta['classes']
+    # class_names = classes[0][0]['description'][0][0]
+    # normalization = meta['normalization']
+    # average_image = np.squeeze(normalization[0][0]['averageImage'][0][0][0][0])
+    # print ('average_imsge is :', average_image)
+    # raw_input('bjsd')
+    # image_size = np.squeeze(normalization[0][0]['imageSize'][0][0])
     # input_maps = tf.image.resize_images(input_maps, image_size[0], image_size[1])
 
     # read layer info
