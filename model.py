@@ -87,6 +87,7 @@ class DCGAN(object):
         self.d_vars = [var for var in t_vars if 'D/d_' in var.name]
         self.g_vars = [var for var in t_vars if 'G/g_' in var.name]
 
+        print ([x.name for x in t_vars])
         self.saver = tf.train.Saver()
 
     def train(self):
@@ -112,15 +113,16 @@ class DCGAN(object):
         self.sess.run(init_op)
 
         start_time = time.time()
-
-        if F.load_chkpt:
-            try:
-                self.load(F.checkpoint_dir)
-                print(" [*] Checkpoint Load Success !!!")
-            except:
-                print(" [!] Checkpoint Load failed !!!!")
-        else:
-            print(" [*] Not Loaded")
+        self.load(F.checkpoint_dir)
+        
+        # if F.load_chkpt:
+        #     try:
+        #         self.load(F.checkpoint_dir)
+        #         print(" [*] Checkpoint Load Success !!!")
+        #     except:
+        #         print(" [!] Checkpoint Load failed !!!!")
+        # else:
+        #     print(" [*] Not Loaded")
 
         self.ra, self.rb = -1, 1
         counter = 1
@@ -169,20 +171,21 @@ class DCGAN(object):
 
                 # peridically save generated images with corresponding checkpoints
 
-                if np.mod(counter, F.sampleInterval) == 0:
+                if np.mod(counter, F.sampleInterval) == 2:
                     sample_z_gen = np.random.uniform(self.ra, self.rb, [F.batch_size, F.z_dim]).astype(np.float32)
                     samples, d_loss, g_loss_actual = self.sess.run(
                         [self.G, self.d_loss, self.g_loss_actual],
                         feed_dict={self.z_gen: sample_z_gen, global_step: counter, self.is_training: False}
                     )
-                    save_images(samples, [8, 8],
-                                F.sample_dir + "/sample_" + str(counter) + ".png")
+                    save_images(samples, [8, 8], "initial_images.png")
+                    # save_images(samples, [8, 8],
+                                # F.sample_dir + "/sample_" + str(counter) + ".png")
                     print("new samples stored!!")
                  
-                # periodically save checkpoints for future loading
-                if np.mod(counter, F.saveInterval) == 0:
-                    self.save(F.checkpoint_dir, counter)
-                    print("Checkpoint saved successfully !!!")
+                # # periodically save checkpoints for future loading
+                # if np.mod(counter, F.saveInterval) == 0:
+                #     self.save(F.checkpoint_dir, counter)
+                #     print("Checkpoint saved successfully !!!")
 
                 counter += 1
                 idx += 1

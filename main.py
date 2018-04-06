@@ -40,7 +40,7 @@ flags.DEFINE_float("lam", 0.1,
                       "lam for impainting")
 
 dataset = "celebA"
-comment ="model_weights_128"
+comment ="model_weights_64"
 
 flags.DEFINE_float(
     "margin", 0.3, "Threshold to judge stopping of D and G nets training")

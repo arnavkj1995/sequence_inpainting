@@ -40,7 +40,7 @@ flags.DEFINE_float("lam", 0.1,
                       "lam for impainting")
 
 dataset = "celebA"
-comment ="model_weights_128_vgg"
+comment ="model_weights_64_mse"
 
 flags.DEFINE_float(
     "margin", 0.3, "Threshold to judge stopping of D and G nets training")
@@ -68,7 +68,7 @@ flags.DEFINE_boolean("inc_score", False, "True for computing inception score")
 flags.DEFINE_boolean("gauss_noise", False, "True for adding noise to disc input")
 flags.DEFINE_boolean("flip_label", False, "True for flipping the labels")
 flags.DEFINE_boolean("use_tfrecords", True, "True for running error concealment part")
-flags.DEFINE_boolean("vggface_loss", True, "True for using VGGFace loss")
+flags.DEFINE_boolean("vggface_loss", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("error_conceal", False, "True for using VGGFace loss")
 
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
@@ -78,7 +78,7 @@ flags.DEFINE_integer("saveInterval", 1000, "Dimension of latent vector.")
 
 flags.DEFINE_integer("c_dim", 3, "Number of channels in input image")
 flags.DEFINE_boolean("is_grayscale", False, "True for grayscale image")
-flags.DEFINE_integer("output_size", 128, "True for grayscale image")
+flags.DEFINE_integer("output_size", 64, "True for grayscale image")
 
 # flags.DEFINE_float('lr',0.01, 'lr for z')
 # flags.DEFINE_float('beta1',0.9, 'beta1')

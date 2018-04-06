@@ -14,6 +14,7 @@ import vggface
 from skimage.measure import compare_psnr
 from skimage.measure import compare_mse
 from tensorflow.python.platform import gfile
+from tensorflow.python.tools import inspect_checkpoint
 
 F = tf.app.flags.FLAGS
 
@@ -58,18 +59,13 @@ class DCGAN(object):
 
         self.images_ = tf.multiply(self.mask, self.images)
         self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(self.images_), lambda: tf.placeholder(tf.float32, [F.batch_size, 100], name='z_gen'))
-        # if self.get_z_init:
-        #     self.images_ = tf.multiply(self.mask, self.images)
-        #     self.z_gen, _ = 
-        # else:
-        #     self.z_gen = 
 
         self.G = self.generator(self.z_gen)
 
-        if F.error_conceal == True:
-            self.D, self.D_logits = self.discriminator(self.images, reuse=False)
-            self.D_, self.D_logits_, = self.discriminator(self.G, reuse=True)
+        self.D, self.D_logits = self.discriminator(self.images, reuse=False)
+        self.D_, self.D_logits_, = self.discriminator(self.G, reuse=True)
 
+        if F.error_conceal == True:
             self.g_loss_actual = tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
 
@@ -84,6 +80,7 @@ class DCGAN(object):
         else:
             if F.vggface_loss == True:
                 vgg_net_inp = tf.concat([self.G, self.images], 0)
+                vgg_net_inp = (vgg_net_inp + 1) * 127.5
                 print (vgg_net_inp.get_shape())
 
                 #Reduce mean values from pixel values
@@ -98,7 +95,7 @@ class DCGAN(object):
                             # tf.reduce_mean(tf.square(vgg_net[:F.batch_size] - vgg_net[F.batch_size:]))
 
             else:
-                self.loss = tf.reduce_mean(tf.square(self.G - self.images))
+                self.loss = tf.reduce_sum(tf.square(self.G - self.images))
             tf.summary.scalar('loss', self.loss)
             
         # create summaries  for Tensorboard visualization
@@ -109,12 +106,13 @@ class DCGAN(object):
         t_vars = tf.trainable_variables()
         self.z_vars = [var for var in t_vars if 'Z/z_' in var.name]
         self.g_vars = [var for var in t_vars if 'G/g_' in var.name]
-        self.d_vars = [var for var in t_vars if 'G/d_' in var.name]
+        self.d_vars = [var for var in t_vars if 'D/d_' in var.name]
 
+        # print ([x.name for x in self.g_vars + self.d_vars])
         self.saver_gen = tf.train.Saver(self.g_vars + self.d_vars)
-        self.saver = tf.train.Saver(self.z_vars)
+        self.saver = tf.train.Saver()
 
-    def train(self):
+    def train(self):    
         # main method for training conditonal GAN
         global_step = tf.placeholder(tf.int32, [], name="global_step_iterations")
 
@@ -124,7 +122,7 @@ class DCGAN(object):
         
         self.summary_op = tf.summary.merge_all()
 
-        z_optim = tf.train.AdamOptimizer(learning_rate_D, beta1=F.beta1D)\
+        z_optim = tf.train.AdamOptimizer(0.001, beta1=F.beta1D)\
           .minimize(self.loss, var_list=self.z_vars)
 
         init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
@@ -132,7 +130,7 @@ class DCGAN(object):
 
         start_time = time.time()
 
-        self.load_G("checkpoint/celebA/model_weights_128")
+        self.load_G("checkpoint/celebA/model_weights_" + str(F.output_size))
 
         if F.load_chkpt:
             try:
@@ -169,9 +167,13 @@ class DCGAN(object):
                       % (idx, zloss))
                  
                 # periodically save checkpoints for future loading
-                if np.mod(counter, F.saveInterval) == 0:
+                if np.mod(counter, F.saveInterval) == 1:
                     self.save(F.checkpoint_dir, counter)
                     print("Checkpoint saved successfully !!!")
+                    save_imgs, save_opts = self.sess.run([self.images_, self.G], feed_dict={global_step: counter, self.mask: masks, self.is_training: False, self.get_z_init: True})
+
+                    save_images(save_imgs, [8, 8], "z_gens/samples_imgs" + str(counter) + ".png")
+                    save_images(save_opts, [8, 8], "z_gens/samples_opts" + str(counter) + ".png")
 
                 counter += 1
                 idx += 1
@@ -192,10 +194,13 @@ class DCGAN(object):
             masks.append(self.create_mask(False))
         return masks
 
-    def create_mask(self, temporal=True, check_size=8):
+    def create_mask(self, centerScale=None, temporal=True, check_size=8):
         # specifically creates random sized/designed mask for consistency experiemnts
-
-        maskType = np.random.randint(0, 4)
+        mask_dict = {'freehand_poly': 0, 'center': 1, 'checkboard': 2, 'random': 3, 'left': 4}
+        if F.error_conceal == False:
+            maskType = np.random.randint(0, 4)
+        else
+            maskType = mask_dict[F.maskType]
 
         if maskType == 0:
             image = np.ones(self.image_shape)
@@ -216,7 +221,8 @@ class DCGAN(object):
 
 
         elif maskType == 1:
-            centerScale = np.random.uniform(0.2, 0.5, [1])[0]
+            if centerScale == None:
+                centerScale = np.random.uniform(0.2, 0.5, [1])[0]
             assert(centerScale <= 0.5)
             mask = np.ones(self.image_shape)
             sz = F.output_size
@@ -242,19 +248,19 @@ class DCGAN(object):
             mask = np.tile(atom, (num_tiles, num_tiles, 1))
 
         elif maskType == 3:
-            fraction_masked = 0.25
+            fraction_masked = F.fraction_masked
             mask = np.ones(self.image_shape)
             mask[np.random.random(self.image_shape[:2]) < fraction_masked] = 0.0
 
-        # elif maskType == 4:
-        #     mask = np.ones(self.image_shape)
-        #     c = F.output_size // 2
-        #     mask[:,:c,:] = 0.0
-        # print mask.shape
+        else:
+            mask = np.ones(self.image_shape)
+            c = F.output_size // 2
+            mask[:,:c,:] = 0.0
+
         return mask
 
     def complete(self):
-        # this is main method which does inpainting (correctness experiment)
+        # # this is main method which does inpainting (correctness experiment)
         def make_dir(name):
             # Works on python 2.7, where exist_ok arg to makedirs isn't available.
             p = os.path.join(F.outDir, name)
@@ -270,72 +276,20 @@ class DCGAN(object):
         except:
             tf.initialize_all_variables().run()
 
+        print (F.checkpoint_dir)
         isLoaded = self.load(F.checkpoint_dir)
-        self.load_G("checkpoint/celebA/model_weights_" + str(F.output_size))
+        # self.load_G("checkpoint/celebA/model_weights_64")# + str(F.output_size))
 
         assert(isLoaded)
 
         files = os.listdir('test_images/') #path of held out images for inpainitng experiment
         print("Total files to inpaint :", len(files))
         imgs = [x for x in files if 'img' in x]
-        keys = [x.replace('img', 'ky') for x in imgs]
         nImgs = len(imgs)
 
         batch_idxs = int(np.ceil(nImgs / F.batch_size))
         print("Total batches:::", batch_idxs)
-        if F.maskType == 'random':
-            fraction_masked = F.fraction_masked
-            mask = np.ones(self.image_shape)
-            mask[np.random.random(self.image_shape[:2]) < fraction_masked] = 0.0
-
-        elif F.maskType == 'center':
-            assert(F.centerScale <= 0.5)
-            mask = np.ones(self.image_shape)
-            sz = F.output_size
-            l = int(F.output_size * F.centerScale)
-            u = int(F.output_size * (1.0-F.centerScale))
-            mask[l:u, l:u, :] = 0.0
-
-        elif F.maskType == 'left':
-            mask = np.ones(self.image_shape)
-            c = F.output_size // 2
-            mask[:,:c,:] = 0.0
-        
-        elif F.maskType == 'freehand_poly':
-            image = np.ones(self.image_shape)
-            mask = np.ones(self.image_shape)
-            if F.output_size == 128:
-                contours = 2 * np.array([ [10,10], [10, 15], [7, 30], [12, 54], [35, 50], [50, 48], [30, 25]])
-            else:
-                contours = np.array([ [10,10], [10, 15], [7, 30], [12, 54], [35, 50], [50, 48], [30, 25]])
-            black = (0, 0, 0)
-            cv2.fillPoly(image, pts = [contours], color = (0, 0, 0))
-            mask = image 
-
-
-
-        elif F.maskType == 'full':
-            mask = np.ones(self.image_shape)
-
-        elif F.maskType == 'grid':
-            mask = np.zeros(self.image_shape)
-            mask[::4,::4,:] = 1.0
-
-        elif F.maskType == 'checkboard':
-            if F.output_size == 128:
-                check_size = 64
-            else:
-                check_size = 32
-            num_tiles = int(self.image_shape[0] / (2 * check_size))
-            w1 = np.ones((check_size, check_size, 3))
-            b1 = np.zeros((check_size, check_size, 3))
-            stack1 = np.hstack((w1, b1))
-            stack2 = np.hstack((b1, w1))
-            atom = np.vstack((stack1, stack2))
-            mask = np.tile(atom, (num_tiles, num_tiles, 1))
-
-        else:
-            assert(False)
+        mask = self.create_mask()
 
         img_data_path = 'test_images/'
 
@@ -348,10 +302,6 @@ class DCGAN(object):
             batch_files = imgs[l:u]
             batch_images = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
                                    for batch_file in batch_files]).astype(np.float32)
-            
-            batch_files = keys[l:u]
-            batch_keypoints = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
-                                      for batch_file in batch_files]).astype(np.float32)
 
             if batchSz < F.batch_size:
                 padSz = ((0, int(F.batch_size - batchSz)), (0,0), (0,0), (0,0))
@@ -370,72 +320,15 @@ class DCGAN(object):
             save_images(np.array(masked_images - np.multiply(np.ones(batch_images.shape), 1.0 - mask)), [nRows,nCols],
                         os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
 
-            zhats = self.sess.run(self.z_gen, feed_dict = {self.images: batch_images, \
-                                        self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
-            for i in xrange(F.nIter):
-                fd = {
-                    self.z_gen: zhats,
-                    self.mask: [mask] * F.batch_size,
-                    self.images: batch_images,
-                    self.is_training: False,
-                    self.get_z_init: False,
-                }
-                run = [self.complete_loss, self.grad_complete_loss, self.G]
-                loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
+            zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, \
+                                       self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
+            
 
-                for img in range(batchSz):
-                    with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
-                        f.write('{} {} '.format(i, loss[img]).encode())
-                        np.savetxt(f, zhats[img:img+1])
-
-                if i % F.outInterval == 0:
-                    print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
-
-                    inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
-                    completed = inv_masked_hat_images
-                    imgName = os.path.join(F.outDir,
-                                           'completed/_{:02d}_{:04d}.png'.format(idx, i))
-                    # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
-                    save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
-
-                if F.approach == 'adam':
-                    # Optimize single completion with Adam
-                    m_prev = np.copy(m)
-                    v_prev = np.copy(v)
-                    m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
-                    v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
-                    m_hat = m / (1 - F.beta1 ** (i + 1))
-                    v_hat = v / (1 - F.beta2 ** (i + 1))
-                    zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
-                    zhats = np.clip(zhats, -1, 1)
-
-                elif F.approach == 'hmc':
-                    # Sample example completions with HMC (not in paper)
-                    zhats_old = np.copy(zhats)
-                    loss_old = np.copy(loss)
-                    v = np.random.randn(self.batch_size, F.z_dim)
-                    v_old = np.copy(v)
-
-                    for steps in range(F.hmcL):
-                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
-                        zhats += F.hmcEps * v
-                        np.copyto(zhats, np.clip(zhats, -1, 1))
-                        loss, g, _, _ = self.sess.run(run, feed_dict=fd)
-                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
-
-                    for img in range(batchSz):
-                        logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
-                        logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
-                        accept = np.exp(logprob_old - logprob)
-                        if accept < 1 and np.random.uniform() > accept:
-                            np.copyto(zhats[img], zhats_old[img])
-
-                    F.hmcBeta *= F.hmcAnneal
-
-                else:
-                    assert(False)
-
+            
             inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)     
+            imgName = os.path.join(F.outDir, 'completed/{:02d}_output.png'.format(idx))
+            save_images(inv_masked_hat_images[:batchSz,:,:,:], [nRows,nCols], imgName)
+
             for i in range(len(masked_images)):
                 psnr_list2.append(self.get_psnr(batch_images[i], inv_masked_hat_images[i]))
 
@@ -455,6 +348,34 @@ class DCGAN(object):
 
         print ('Final | PSNR After Blending:: ', np.mean(psnr_list))
         np.save(F.outDir + '/complete_psnr_before_blend.npy', np.array(psnr_list2)) # For statistical testing
+
+    def poisson_blend(self, imgs1, imgs2, mask):
+        # call this while performing correctness experiment
+        out = np.zeros(imgs1.shape)
+
+        for i in range(0, len(imgs1)):
+            img1 = (imgs1[i] + 1.) / 2.0
+            img2 = (imgs2[i] + 1.) / 2.0
+            out[i] = np.clip((poissonblending.blend(img1, img2, 1 - mask) - 0.5) * 2, -1.0, 1.0)
+
+        return out.astype(np.float32)
+
+    def poisson_blend2(self, imgs1, imgs2, mask):
+        # call this while performing consistency experiment
+        out = np.zeros(imgs1.shape)
+
+        for i in range(0, len(imgs1)):
+            img1 = (imgs1[i] + 1.) / 2.0
+            img2 = (imgs2[i] + 1.) / 2.0
+            out[i] = np.clip((poissonblending.blend(img1, img2, 1 - mask[i]) - 0.5) * 2, -1.0, 1.0)
+
+        return out.astype(np.float32)
+
+    def get_psnr(self, img_true, img_gen):
+        return compare_psnr(img_true.astype(np.float32), img_gen.astype(np.float32))
+
+    def get_mse(self, img_true, img_gen):
+        return compare_mse(img_true.astype(np.float32), img_gen.astype(np.float32))
 
     def generator(self, z):
         dim = 64
@@ -514,7 +435,7 @@ class DCGAN(object):
                   h4 = lrelu(batch_norm(name='z_bn4')(conv2d(h3, dim * 16, name='z_h4_conv'), self.is_training))
                   h4 = tf.reshape(h4, [F.batch_size, -1])
                   h5 = linear(h4, 100, 'z_h5_lin')
-                  return tf.nn.tanh(h5), h5
+                  return tf.nn.tanh(h5)
 
             else:
                   h0 = lrelu(conv2d(image, dim, name='z_h0_conv'))
