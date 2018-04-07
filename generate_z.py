@@ -199,7 +199,7 @@ class DCGAN(object):
         mask_dict = {'freehand_poly': 0, 'center': 1, 'checkboard': 2, 'random': 3, 'left': 4}
         if F.error_conceal == False:
             maskType = np.random.randint(0, 4)
-        else
+        else:
             maskType = mask_dict[F.maskType]
 
         if maskType == 0:
@@ -278,7 +278,6 @@ class DCGAN(object):
 
         print (F.checkpoint_dir)
         isLoaded = self.load(F.checkpoint_dir)
-        # self.load_G("checkpoint/celebA/model_weights_64")# + str(F.output_size))
 
         assert(isLoaded)
 
@@ -324,7 +323,69 @@ class DCGAN(object):
                                        self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
             
 
-            
+            for i in xrange(F.nIter):
+                fd = {
+                    self.mask: [mask] * F.batch_size,
+                    self.images: batch_images,
+                    self.is_training: False,
+                    self.z_gen: zhats,
+                    self.get_z_init: False
+                }
+                run = [self.complete_loss, self.grad_complete_loss, self.G]
+                loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
+
+                for img in range(batchSz):
+                    with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
+                        f.write('{} {} '.format(i, loss[img]).encode())
+                        np.savetxt(f, zhats[img:img+1])
+
+                if i % F.outInterval == 0:
+                    print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
+
+                    inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
+                    completed = inv_masked_hat_images
+                    imgName = os.path.join(F.outDir,
+                                           'completed/_{:02d}_{:04d}.png'.format(idx, i))
+                    # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
+                    save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
+
+                if F.approach == 'adam':
+                    # Optimize single completion with Adam
+                    m_prev = np.copy(m)
+                    v_prev = np.copy(v)
+                    m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
+                    v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
+                    m_hat = m / (1 - F.beta1 ** (i + 1))
+                    v_hat = v / (1 - F.beta2 ** (i + 1))
+                    zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
+                    zhats = np.clip(zhats, -1, 1)
+
+                elif F.approach == 'hmc':
+                    # Sample example completions with HMC (not in paper)
+                    zhats_old = np.copy(zhats)
+                    loss_old = np.copy(loss)
+                    v = np.random.randn(self.batch_size, F.z_dim)
+                    v_old = np.copy(v)
+
+                    for steps in range(F.hmcL):
+                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
+                        zhats += F.hmcEps * v
+                        np.copyto(zhats, np.clip(zhats, -1, 1))
+                        loss, g, _, _ = self.sess.run(run, feed_dict=fd)
+                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
+
+                    for img in range(batchSz):
+                        logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
+                        logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
+                        accept = np.exp(logprob_old - logprob)
+                        if accept < 1 and np.random.uniform() > accept:
+                            np.copyto(zhats[img], zhats_old[img])
+
+                    F.hmcBeta *= F.hmcAnneal
+
+                else:
+                    assert(False)   
+
             inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)     
             imgName = os.path.join(F.outDir, 'completed/{:02d}_output.png'.format(idx))
             save_images(inv_masked_hat_images[:batchSz,:,:,:], [nRows,nCols], imgName)
