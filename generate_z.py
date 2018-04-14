@@ -91,16 +91,17 @@ class DCGAN(object):
 
                 vgg_net = vggface.vgg_face('vgg-face.mat', vgg_net_inp)
 
-                self.loss = tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))# + \
-                            # tf.reduce_mean(tf.square(vgg_net[:F.batch_size] - vgg_net[F.batch_size:]))
+                self.loss = 0.001 * (tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:])) + \
+                            tf.reduce_mean(tf.square(vgg_net['relu4_3'][:F.batch_size] - vgg_net['relu4_3'][F.batch_size:])))
 
             else:
-                self.loss = tf.reduce_sum(tf.square(self.G - self.images))
+                self.loss = 0.01 * tf.reduce_sum(tf.square(self.G - self.images))
             tf.summary.scalar('loss', self.loss)
-            
-        # create summaries  for Tensorboard visualization
+           
+        if F.disc_loss == True:
+            self.loss += tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
         
-
+        # create summaries  for Tensorboard visualization
         self.g_loss = tf.constant(0) 
 
         t_vars = tf.trainable_variables()
@@ -191,14 +192,14 @@ class DCGAN(object):
     def next_mask(self):
         masks = []
         for i in range(F.batch_size):
-            masks.append(self.create_mask(False))
+            masks.append(self.create_mask(temporal=True))
         return masks
 
-    def create_mask(self, centerScale=None, temporal=True, check_size=8):
+    def create_mask(self, centerScale=None, temporal=False, check_size=16):
         # specifically creates random sized/designed mask for consistency experiemnts
-        mask_dict = {'freehand_poly': 0, 'center': 1, 'checkboard': 2, 'random': 3, 'left': 4}
+        mask_dict = {'freehand_poly': 0, 'center': 1, 'checkboard': 2, 'random': 3, 'left': 4, 'right' : 5, 'top' : 6, 'bottom' : 7}
         if F.error_conceal == False:
-            maskType = np.random.randint(0, 4)
+            maskType = np.random.randint(0, 8)
         else:
             maskType = mask_dict[F.maskType]
 
@@ -221,8 +222,9 @@ class DCGAN(object):
 
 
         elif maskType == 1:
-            if centerScale == None:
-                centerScale = np.random.uniform(0.2, 0.5, [1])[0]
+            centerScale = 0.25
+            # if centerScale == None:
+                # centerScale = np.random.uniform(0.2, 0.4, [1])[0]
             assert(centerScale <= 0.5)
             mask = np.ones(self.image_shape)
             sz = F.output_size
@@ -248,14 +250,29 @@ class DCGAN(object):
             mask = np.tile(atom, (num_tiles, num_tiles, 1))
 
         elif maskType == 3:
-            fraction_masked = F.fraction_masked
+            fraction_masked = np.random.uniform(0.2, 0.8) #F.fraction_masked
             mask = np.ones(self.image_shape)
             mask[np.random.random(self.image_shape[:2]) < fraction_masked] = 0.0
+
+        elif maskType == 4:
+            mask = np.ones(self.image_shape)
+            c = F.output_size // 2
+            mask[:,:c,:] = 0.0
+
+        elif maskType == 5:
+            mask = np.ones(self.image_shape)
+            c = F.output_size // 2
+            mask[:,:-c,:] = 0.0
+
+        elif maskType == 6:
+            mask = np.ones(self.image_shape)
+            c = F.output_size // 2
+            mask[:c,:,:] = 0.0
 
         else:
             mask = np.ones(self.image_shape)
             c = F.output_size // 2
-            mask[:,:c,:] = 0.0
+            mask[:-c,:,:] = 0.0
 
         return mask
 
@@ -277,7 +294,8 @@ class DCGAN(object):
             tf.initialize_all_variables().run()
 
         print (F.checkpoint_dir)
-        isLoaded = self.load(F.checkpoint_dir)
+        isLoaded = self.load(F.checkpoint_dir.replace('dloss', 'final'))
+        # isLoaded = self.load(F.checkpoint_dir)
 
         assert(isLoaded)
 
@@ -323,68 +341,68 @@ class DCGAN(object):
                                        self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
             
 
-            for i in xrange(F.nIter):
-                fd = {
-                    self.mask: [mask] * F.batch_size,
-                    self.images: batch_images,
-                    self.is_training: False,
-                    self.z_gen: zhats,
-                    self.get_z_init: False
-                }
-                run = [self.complete_loss, self.grad_complete_loss, self.G]
-                loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
+            # for i in xrange(F.nIter):
+            #     fd = {
+            #         self.mask: [mask] * F.batch_size,
+            #         self.images: batch_images,
+            #         self.is_training: False,
+            #         self.z_gen: zhats,
+            #         self.get_z_init: False
+            #     }
+            #     run = [self.complete_loss, self.grad_complete_loss, self.G]
+            #     loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
 
-                for img in range(batchSz):
-                    with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
-                        f.write('{} {} '.format(i, loss[img]).encode())
-                        np.savetxt(f, zhats[img:img+1])
+            #     for img in range(batchSz):
+            #         with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
+            #             f.write('{} {} '.format(i, loss[img]).encode())
+            #             np.savetxt(f, zhats[img:img+1])
 
-                if i % F.outInterval == 0:
-                    print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
+            #     if i % F.outInterval == 0:
+            #         print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
 
-                    inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
-                    completed = inv_masked_hat_images
-                    imgName = os.path.join(F.outDir,
-                                           'completed/_{:02d}_{:04d}.png'.format(idx, i))
-                    # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
-                    save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
+            #         inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
+            #         completed = inv_masked_hat_images
+            #         imgName = os.path.join(F.outDir,
+            #                                'completed/_{:02d}_{:04d}.png'.format(idx, i))
+            #         # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
+            #         save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
 
-                if F.approach == 'adam':
-                    # Optimize single completion with Adam
-                    m_prev = np.copy(m)
-                    v_prev = np.copy(v)
-                    m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
-                    v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
-                    m_hat = m / (1 - F.beta1 ** (i + 1))
-                    v_hat = v / (1 - F.beta2 ** (i + 1))
-                    zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
-                    zhats = np.clip(zhats, -1, 1)
+            #     if F.approach == 'adam':
+            #         # Optimize single completion with Adam
+            #         m_prev = np.copy(m)
+            #         v_prev = np.copy(v)
+            #         m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
+            #         v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
+            #         m_hat = m / (1 - F.beta1 ** (i + 1))
+            #         v_hat = v / (1 - F.beta2 ** (i + 1))
+            #         zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
+            #         zhats = np.clip(zhats, -1, 1)
 
-                elif F.approach == 'hmc':
-                    # Sample example completions with HMC (not in paper)
-                    zhats_old = np.copy(zhats)
-                    loss_old = np.copy(loss)
-                    v = np.random.randn(self.batch_size, F.z_dim)
-                    v_old = np.copy(v)
+            #     elif F.approach == 'hmc':
+            #         # Sample example completions with HMC (not in paper)
+            #         zhats_old = np.copy(zhats)
+            #         loss_old = np.copy(loss)
+            #         v = np.random.randn(self.batch_size, F.z_dim)
+            #         v_old = np.copy(v)
 
-                    for steps in range(F.hmcL):
-                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
-                        zhats += F.hmcEps * v
-                        np.copyto(zhats, np.clip(zhats, -1, 1))
-                        loss, g, _, _ = self.sess.run(run, feed_dict=fd)
-                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
+            #         for steps in range(F.hmcL):
+            #             v -= F.hmcEps/2 * F.hmcBeta * g[0]
+            #             zhats += F.hmcEps * v
+            #             np.copyto(zhats, np.clip(zhats, -1, 1))
+            #             loss, g, _, _ = self.sess.run(run, feed_dict=fd)
+            #             v -= F.hmcEps/2 * F.hmcBeta * g[0]
 
-                    for img in range(batchSz):
-                        logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
-                        logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
-                        accept = np.exp(logprob_old - logprob)
-                        if accept < 1 and np.random.uniform() > accept:
-                            np.copyto(zhats[img], zhats_old[img])
+            #         for img in range(batchSz):
+            #             logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
+            #             logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
+            #             accept = np.exp(logprob_old - logprob)
+            #             if accept < 1 and np.random.uniform() > accept:
+            #                 np.copyto(zhats[img], zhats_old[img])
 
-                    F.hmcBeta *= F.hmcAnneal
+            #         F.hmcBeta *= F.hmcAnneal
 
-                else:
-                    assert(False)   
+            #     else:
+            #         assert(False)   
 
             inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)     
             imgName = os.path.join(F.outDir, 'completed/{:02d}_output.png'.format(idx))
