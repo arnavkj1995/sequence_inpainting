@@ -23,7 +23,7 @@ flags.DEFINE_float("beta1D", 0.5, "Momentum term of adam [0.5]")
 flags.DEFINE_float("beta1G", 0.5, "Momentum term of adam [0.5]")
 flags.DEFINE_integer("decay_step", 5000, "Decay step of learning rate in epochs")
 flags.DEFINE_float("decay_rate", 0.8, "Decay rate of learning rate")
-flags.DEFINE_float("eps", 1e-5, "Epsilon")
+flags.DEFINE_float("eps", 1e-6, "Epsilon")
 flags.DEFINE_float("var", 1e-5, "Variance")
 flags.DEFINE_float("gpu_frac", 0.5, "Gpu fraction")
 flags.DEFINE_integer("no_of_samples", 50,
@@ -41,7 +41,7 @@ flags.DEFINE_integer("num_keypoints", 68,
 # flags.DEFINE_integer('outDir', 'completions', "Directory to save completed images.")
 
 dataset = "celebA"
-comment = "model_weights_64_mse"
+comment = "model_weights_64_vgg"
 
 
 """   --meaning for the acronyms for folder names ----
@@ -80,12 +80,13 @@ flags.DEFINE_boolean("gauss_noise", False, "True for adding noise to disc input"
 flags.DEFINE_boolean("flip_label", False, "True for flipping the labels")
 flags.DEFINE_boolean("error_conceal", True, "True for running error concealment part")
 flags.DEFINE_boolean("use_tfrecords", False, "True for running error concealment part")
+flags.DEFINE_boolean("disc_loss", True, "True for using D loss")
 
 flags.DEFINE_string('--approach', 'adam', 'Approach for back tracking in z-space')
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
 flags.DEFINE_integer("z_dim", 100, "Dimension of latent vector.")
 
-flags.DEFINE_float('lr',0.01, 'lr for z')
+flags.DEFINE_float('lr',0.001, 'lr for z')
 flags.DEFINE_float('beta1',0.9, 'beta1')
 flags.DEFINE_float('beta2',0.999, 'beta2')
 # flags.DEFINE_float('eps',1e-8, 'eps')
@@ -94,7 +95,7 @@ flags.DEFINE_float('hmcEps', 0.001, "hmcEps")
 flags.DEFINE_integer('hmcL', 100, "hmcL")
 flags.DEFINE_integer('hmcAnneal', 1, "hmcAnneal")
 flags.DEFINE_integer('nIter', 100, "nIter")
-flags.DEFINE_float('lam', 0.1, "lam")
+flags.DEFINE_float('lam', 0.01, "lam")
 flags.DEFINE_string('outDir', 'completions_results_video_conf', "Directory to save completed images.")
 flags.DEFINE_integer('outInterval', 10, 'outInterval')
 flags.DEFINE_string('maskType', 'checkboard', 'maskType')

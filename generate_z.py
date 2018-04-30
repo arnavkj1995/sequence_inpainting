@@ -38,7 +38,7 @@ class DCGAN(object):
             # load images from tfrecords + queue thread runner for better GPU utilization
             tfrecords_filename = ['train_records/' + x for x in os.listdir('train_records/')]
             filename_queue = tf.train.string_input_producer(
-                                tfrecords_filename, num_epochs=100)
+                                tfrecords_filename, num_epochs=10)
 
             self.images = reader.read_and_decode(filename_queue, F.batch_size)
 
@@ -70,7 +70,7 @@ class DCGAN(object):
                 tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
 
             # self.mask = tf.placeholder(tf.float32, [F.batch_size] + self.image_shape, name='mask')
-            self.contextual_loss = tf.reduce_sum(tf.contrib.layers.flatten(
+            self.contextual_loss = tf.reduce_mean(tf.contrib.layers.flatten(
                                                  tf.abs(tf.multiply(self.mask, self.G) -
                                                  tf.multiply(self.mask, self.images))), 1)
             self.perceptual_loss = self.g_loss_actual
@@ -91,16 +91,18 @@ class DCGAN(object):
 
                 vgg_net = vggface.vgg_face('vgg-face.mat', vgg_net_inp)
 
-                self.loss = 0.001 * (tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:])) + \
-                            tf.reduce_mean(tf.square(vgg_net['relu4_3'][:F.batch_size] - vgg_net['relu4_3'][F.batch_size:])))
+                self.loss = 0.001 * (tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))) #+ \
+                            #tf.reduce_mean(tf.square(vgg_net['relu4_3'][:F.batch_size] - vgg_net['relu4_3'][F.batch_size:])))
 
             else:
                 self.loss = 0.01 * tf.reduce_sum(tf.square(self.G - self.images))
             tf.summary.scalar('loss', self.loss)
            
         if F.disc_loss == True:
-            self.loss += tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
-        
+            self.disc_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+            tf.summary.scalar('disc_loss', self.disc_loss)
+            self.loss += self.disc_loss
+
         # create summaries  for Tensorboard visualization
         self.g_loss = tf.constant(0) 
 
@@ -123,7 +125,7 @@ class DCGAN(object):
         
         self.summary_op = tf.summary.merge_all()
 
-        z_optim = tf.train.AdamOptimizer(0.001, beta1=F.beta1D)\
+        z_optim = tf.train.AdamOptimizer(learning_rate_D, beta1=F.beta1D)\
           .minimize(self.loss, var_list=self.z_vars)
 
         init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
@@ -163,13 +165,14 @@ class DCGAN(object):
                         [self.summary_op, z_optim,  self.loss],
                         feed_dict={global_step: counter, self.mask: masks, self.is_training: True, self.get_z_init: True})
                 writer.add_summary(train_summary, counter)
-
-                print(("Iteration: [%6d] mse loss:%.2e")
-                      % (idx, zloss))
+		
+		lrateD = learning_rate_D.eval({global_step: counter})	
+                print(("Iteration: [%6d],  loss:%.4f, learning_rate: %.8f")
+                      % (idx, zloss, lrateD))
                  
                 # periodically save checkpoints for future loading
                 if np.mod(counter, F.saveInterval) == 1:
-                    self.save(F.checkpoint_dir, counter)
+                    #self.save(F.checkpoint_dir, counter)
                     print("Checkpoint saved successfully !!!")
                     save_imgs, save_opts = self.sess.run([self.images_, self.G], feed_dict={global_step: counter, self.mask: masks, self.is_training: False, self.get_z_init: True})
 
@@ -301,7 +304,7 @@ class DCGAN(object):
 
         files = os.listdir('test_images/') #path of held out images for inpainitng experiment
         print("Total files to inpaint :", len(files))
-        imgs = [x for x in files if 'img' in x]
+        imgs = [x for x in files if 'img' in x][:512]
         nImgs = len(imgs)
 
         batch_idxs = int(np.ceil(nImgs / F.batch_size))
@@ -341,68 +344,69 @@ class DCGAN(object):
                                        self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
             
 
-            # for i in xrange(F.nIter):
-            #     fd = {
-            #         self.mask: [mask] * F.batch_size,
-            #         self.images: batch_images,
-            #         self.is_training: False,
-            #         self.z_gen: zhats,
-            #         self.get_z_init: False
-            #     }
-            #     run = [self.complete_loss, self.grad_complete_loss, self.G]
-            #     loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
+            for i in xrange(F.nIter):
+                fd = {
+                    self.mask: [mask] * F.batch_size,
+                    self.images: batch_images,
+                    self.is_training: False,
+                    self.z_gen: zhats,
+                    self.get_z_init: False
+                }
+                run = [self.complete_loss, self.grad_complete_loss, self.G]
+                loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
 
-            #     for img in range(batchSz):
-            #         with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
-            #             f.write('{} {} '.format(i, loss[img]).encode())
-            #             np.savetxt(f, zhats[img:img+1])
+                for img in range(batchSz):
+                    with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
+                        f.write('{} {} '.format(i, loss[img]).encode())
+                        np.savetxt(f, zhats[img:img+1])
 
-            #     if i % F.outInterval == 0:
-            #         print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
+                if i % F.outInterval == 0:
+                    print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
 
-            #         inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
-            #         completed = inv_masked_hat_images
-            #         imgName = os.path.join(F.outDir,
-            #                                'completed/_{:02d}_{:04d}.png'.format(idx, i))
-            #         # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
-            #         save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
+                    inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
+                    completed = inv_masked_hat_images
+                    imgName = os.path.join(F.outDir,
+                                           'completed/_{:02d}_{:04d}.png'.format(idx, i))
+                    # scipy.misc.imsave(imgName, (G_imgs[0] + 1) * 127.5)
+                    save_images(completed[:batchSz,:,:,:], [nRows,nCols], imgName)
 
-            #     if F.approach == 'adam':
-            #         # Optimize single completion with Adam
-            #         m_prev = np.copy(m)
-            #         v_prev = np.copy(v)
-            #         m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
-            #         v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
-            #         m_hat = m / (1 - F.beta1 ** (i + 1))
-            #         v_hat = v / (1 - F.beta2 ** (i + 1))
-            #         zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
-            #         zhats = np.clip(zhats, -1, 1)
+                if F.approach == 'adam':
+                    # Optimize single completion with Adam
+                    m_prev = np.copy(m)
+                    v_prev = np.copy(v)
+                    m = F.beta1 * m_prev + (1 - F.beta1) * g[0]
+                    v = F.beta2 * v_prev + (1 - F.beta2) * np.multiply(g[0], g[0])
+                    m_hat = m / (1 - F.beta1 ** (i + 1))
+                    v_hat = v / (1 - F.beta2 ** (i + 1))
+                    # print 'here'
+                    zhats += - np.true_divide(F.lr * m_hat, (np.sqrt(v_hat) + F.eps))
+                    zhats = np.clip(zhats, -1, 1)
 
-            #     elif F.approach == 'hmc':
-            #         # Sample example completions with HMC (not in paper)
-            #         zhats_old = np.copy(zhats)
-            #         loss_old = np.copy(loss)
-            #         v = np.random.randn(self.batch_size, F.z_dim)
-            #         v_old = np.copy(v)
+                elif F.approach == 'hmc':
+                    # Sample example completions with HMC (not in paper)
+                    zhats_old = np.copy(zhats)
+                    loss_old = np.copy(loss)
+                    v = np.random.randn(self.batch_size, F.z_dim)
+                    v_old = np.copy(v)
 
-            #         for steps in range(F.hmcL):
-            #             v -= F.hmcEps/2 * F.hmcBeta * g[0]
-            #             zhats += F.hmcEps * v
-            #             np.copyto(zhats, np.clip(zhats, -1, 1))
-            #             loss, g, _, _ = self.sess.run(run, feed_dict=fd)
-            #             v -= F.hmcEps/2 * F.hmcBeta * g[0]
+                    for steps in range(F.hmcL):
+                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
+                        zhats += F.hmcEps * v
+                        np.copyto(zhats, np.clip(zhats, -1, 1))
+                        loss, g, _, _ = self.sess.run(run, feed_dict=fd)
+                        v -= F.hmcEps/2 * F.hmcBeta * g[0]
 
-            #         for img in range(batchSz):
-            #             logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
-            #             logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
-            #             accept = np.exp(logprob_old - logprob)
-            #             if accept < 1 and np.random.uniform() > accept:
-            #                 np.copyto(zhats[img], zhats_old[img])
+                    for img in range(batchSz):
+                        logprob_old = F.hmcBeta * loss_old[img] + np.sum(v_old[img]**2)/2
+                        logprob = F.hmcBeta * loss[img] + np.sum(v[img]**2)/2
+                        accept = np.exp(logprob_old - logprob)
+                        if accept < 1 and np.random.uniform() > accept:
+                            np.copyto(zhats[img], zhats_old[img])
 
-            #         F.hmcBeta *= F.hmcAnneal
+                    F.hmcBeta *= F.hmcAnneal
 
-            #     else:
-            #         assert(False)   
+                else:
+                    assert(False)   
 
             inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)     
             imgName = os.path.join(F.outDir, 'completed/{:02d}_output.png'.format(idx))

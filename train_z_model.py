@@ -17,7 +17,7 @@ flags.DEFINE_float("learning_rate_G", 0.0002,
                    "Learning rate of for adam [0.0002]")
 flags.DEFINE_float("beta1D", 0.5, "Momentum term of adam [0.5]")
 flags.DEFINE_float("beta1G", 0.5, "Momentum term of adam [0.5]")
-flags.DEFINE_integer("decay_step", 5000000, "Decay step of learning rate in epochs")
+flags.DEFINE_integer("decay_step", 4000000, "Decay step of learning rate in epochs")
 flags.DEFINE_float("decay_rate", 0.8, "Decay rate of learning rate")
 flags.DEFINE_float("eps", 1e-5, "Epsilon")
 flags.DEFINE_float("var", 1e-5, "Variance")
@@ -40,7 +40,7 @@ flags.DEFINE_float("lam", 0.1,
                       "lam for impainting")
 
 dataset = "celebA"
-comment ="model_weights_64_mse_dloss"
+comment ="model_weights_128_vgg"
 
 flags.DEFINE_float(
     "margin", 0.3, "Threshold to judge stopping of D and G nets training")
@@ -70,7 +70,7 @@ flags.DEFINE_boolean("flip_label", False, "True for flipping the labels")
 flags.DEFINE_boolean("use_tfrecords", True, "True for running error concealment part")
 flags.DEFINE_boolean("vggface_loss", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("error_conceal", False, "True for using VGGFace loss")
-flags.DEFINE_boolean("disc_loss", True, "True for using VGGFace loss")
+flags.DEFINE_boolean("disc_loss", False, "True for using VGGFace loss")
 
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
 flags.DEFINE_integer("z_dim", 100, "Dimension of latent vector.")
