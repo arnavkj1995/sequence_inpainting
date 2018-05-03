@@ -314,6 +314,8 @@ class DCGAN(object):
         img_data_path = 'test_images/'
 
         psnr_list, psnr_list2 = [], []
+        im_cnt = 1
+        
         for idx in xrange(0, batch_idxs):
             print("Processing batch number:  ", idx)
             l = idx * F.batch_size
@@ -414,23 +416,27 @@ class DCGAN(object):
 
             for i in range(len(masked_images)):
                 psnr_list2.append(self.get_psnr(batch_images[i], inv_masked_hat_images[i]))
+                if F.save_output_images:
+                    scipy.misc.imsave('facenet_i/' + str(im_cnt) + '.png', batch_images[i])
+                    scipy.misc.imsave('facenet_o/' + str(im_cnt) + '.png', inv_masked_hat_images[i])
+                    im_cnt += 1
 
 
-            blended_images = self.poisson_blend(batch_images, G_imgs, mask)
-            imgName = os.path.join(F.outDir, 'completed/{:02d}_blended.png'.format(idx))
-            save_images(blended_images[:batchSz,:,:,:], [nRows,nCols], imgName)
+        #     blended_images = self.poisson_blend(batch_images, G_imgs, mask)
+        #     imgName = os.path.join(F.outDir, 'completed/{:02d}_blended.png'.format(idx))
+        #     save_images(blended_images[:batchSz,:,:,:], [nRows,nCols], imgName)
             
-            for i in range(len(masked_images)):
-                psnr_list.append(self.get_psnr(batch_images[i], blended_images[i]))
+        #     for i in range(len(masked_images)):
+        #         psnr_list.append(self.get_psnr(batch_images[i], blended_images[i]))
 
-            print("After current batch | PSNR before blending::: ",  np.mean(psnr_list2))
-            print("After current batch | PSNR after blending::: ",  np.mean(psnr_list))
+        #     print("After current batch | PSNR before blending::: ",  np.mean(psnr_list2))
+        #     print("After current batch | PSNR after blending::: ",  np.mean(psnr_list))
 
-        print ('Final | PSNR Before Blending:: ', np.mean(psnr_list2))
-        np.save(F.outDir + '/complete_psnr_after_blend.npy', np.array(psnr_list)) # For statistical testing
+        # print ('Final | PSNR Before Blending:: ', np.mean(psnr_list2))
+        # np.save(F.outDir + '/complete_psnr_after_blend.npy', np.array(psnr_list)) # For statistical testing
 
-        print ('Final | PSNR After Blending:: ', np.mean(psnr_list))
-        np.save(F.outDir + '/complete_psnr_before_blend.npy', np.array(psnr_list2)) # For statistical testing
+        # print ('Final | PSNR After Blending:: ', np.mean(psnr_list))
+        # np.save(F.outDir + '/complete_psnr_before_blend.npy', np.array(psnr_list2)) # For statistical testing
 
     def poisson_blend(self, imgs1, imgs2, mask):
         # call this while performing correctness experiment
