@@ -10,6 +10,7 @@ import time
 import os
 import facenet
 import numpy as np
+from numpy import linalg as linalg
 from sklearn.datasets import load_files
 import tensorflow as tf
 from scipy.misc import imsave, imread, imresize
@@ -44,25 +45,30 @@ def main():
 			# Run forward pass to calculate embeddings
 
 			i_list = ['facenet_i/' + x for x in os.listdir('facenet_i/')]
-			o_list = [x.replace('facenet_i', 'facenet_o') for x in i_list]
+			o_list = [x.replace('facenet_i', 'facenet_ob') for x in i_list]
 
 			i_ims, o_ims = [], []
 			# batch
 			loss = []
+                        individual_loss_list = []
+                        cnt = 1
 			for i in range(len(i_list)):
 				i_ims.append(imresize(imread(i_list[i]), (160, 160, 3)))
 				o_ims.append(imresize(imread(o_list[i]), (160, 160, 3)))
 
 				if i%batch_size == batch_size - 1:
-					
+                                        cnt += 1
+					print("processing batch no: ", cnt)
 					i_emb = sess.run(embeddings,feed_dict={images_placeholder:i_ims,phase_train_placeholder:False})
-					o_emb = sess.run(embeddings,feed_dict={images_placeholder:o_ims,phase_train_placeholder:False})		
-
-					loss.append(np.mean((i_emb - o_emb)**2))
+					o_emb = sess.run(embeddings,feed_dict={images_placeholder:o_ims,phase_train_placeholder:False})
+                                        
+                                        #individual_loss = (i_emb - o_emb)**2
+                                        #x = np.mean(individual_loss, axis=1)
+                                        individual_loss_list.append(linalg.norm(i_emb-o_emb, axis=1))
 					i_ims, o_ims = [], []			
 
-			print ('loss is :', np.mean(loss))
-
+			print ('loss is :', np.mean(individual_loss_list))
+                        np.save('init_mse_128.npy', np.array(individual_loss_list))
 			# print(sess.run(embeddings,feed_dict={images_placeholder:a,phase_train_placeholder:False}))
 			
 

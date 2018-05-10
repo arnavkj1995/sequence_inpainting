@@ -1,5 +1,6 @@
 from __future__ import division
 import os
+import pickle
 import sys
 import time
 import reader
@@ -67,7 +68,7 @@ class DCGAN(object):
 
         if F.error_conceal == True:
             self.g_loss_actual = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)))
+                tf.nn.sigmoid_cross_entropy_with_logits(logits=self.D_logits_, labels=tf.ones_like(self.D_)),1)
 
             # self.mask = tf.placeholder(tf.float32, [F.batch_size] + self.image_shape, name='mask')
             self.contextual_loss = tf.reduce_mean(tf.contrib.layers.flatten(
@@ -91,8 +92,8 @@ class DCGAN(object):
 
                 vgg_net = vggface.vgg_face('vgg-face.mat', vgg_net_inp)
 
-                self.loss = 0.001 * (tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))) #+ \
-                            #tf.reduce_mean(tf.square(vgg_net['relu4_3'][:F.batch_size] - vgg_net['relu4_3'][F.batch_size:])))
+                self.loss = 0.01 * (tf.reduce_mean(tf.square(vgg_net['relu3_3'][:F.batch_size] - vgg_net['relu3_3'][F.batch_size:]))+ \
+                            tf.reduce_mean(tf.square(vgg_net['relu4_3'][:F.batch_size] - vgg_net['relu4_3'][F.batch_size:])))
 
             else:
                 self.loss = 0.01 * tf.reduce_sum(tf.square(self.G - self.images))
@@ -133,9 +134,11 @@ class DCGAN(object):
 
         start_time = time.time()
 
-        self.load_G("checkpoint/celebA/model_weights_" + str(F.output_size))
+        #self.load_G("checkpoint/celebA/model_weights_" + str(F.output_size))
+        self.load_G("checkpoint/celebA/vid/model_weights_64_video_deploy")
 
-        if F.load_chkpt:
+        """if F.load_chkpt:
+            pass
             try:
                 self.load(F.checkpoint_dir)
                 print(" [*] Checkpoint Load Success !!!")
@@ -143,7 +146,7 @@ class DCGAN(object):
                 print(" [!] Checkpoint Load failed !!!!")
         else:
             print(" [*] Not Loaded")
-
+        """
         self.ra, self.rb = -1, 1
         counter = 1
         step = 1
@@ -172,7 +175,7 @@ class DCGAN(object):
                  
                 # periodically save checkpoints for future loading
                 if np.mod(counter, F.saveInterval) == 1:
-                    #self.save(F.checkpoint_dir, counter)
+                    self.save(F.checkpoint_dir, counter)
                     print("Checkpoint saved successfully !!!")
                     save_imgs, save_opts = self.sess.run([self.images_, self.G], feed_dict={global_step: counter, self.mask: masks, self.is_training: False, self.get_z_init: True})
 
@@ -297,27 +300,40 @@ class DCGAN(object):
             tf.initialize_all_variables().run()
 
         print (F.checkpoint_dir)
-        isLoaded = self.load(F.checkpoint_dir.replace('dloss', 'final'))
+        #isLoaded = self.load(F.checkpoint_dir.replace('dloss', 'final'))
         # isLoaded = self.load(F.checkpoint_dir)
 
-        assert(isLoaded)
+        #assert(isLoaded)
+        img_data_path = 'faces_lowres/'
 
-        files = os.listdir('test_images/') #path of held out images for inpainitng experiment
+        files = os.listdir(img_data_path)#os.listdir('test_images/') #path of held out images for inpainitng experiment
         print("Total files to inpaint :", len(files))
-        imgs = [x for x in files if 'img' in x][:512]
+        imgs = [x for x in files if 'faces' in x]
         nImgs = len(imgs)
 
         batch_idxs = int(np.ceil(nImgs / F.batch_size))
         print("Total batches:::", batch_idxs)
         mask = self.create_mask()
+        
 
-        img_data_path = 'test_images/'
+        #mask=[]
+        #for i in range(int(F.batch_size )):
+        #    mask.append(self.create_mask(temporal=True))
+            #masks.append(m)
+
+        #with open("masks.txt", "wb") as fp:   #Pickling
+        #    pickle.dump(mask, fp)
+        
+
+
 
         psnr_list, psnr_list2 = [], []
         im_cnt = 1
         
-        for idx in xrange(0, batch_idxs):
+        for idx in xrange(0, batch_idxs+1):
             print("Processing batch number:  ", idx)
+            #if idx != 0:
+            #  continue   # only doing for 7 batches for face net loss reporting
             l = idx * F.batch_size
             u = min((idx + 1) * F.batch_size, nImgs)
             batchSz = u - l
@@ -325,12 +341,11 @@ class DCGAN(object):
             batch_images = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
                                    for batch_file in batch_files]).astype(np.float32)
 
-            if batchSz < F.batch_size:
-                padSz = ((0, int(F.batch_size - batchSz)), (0,0), (0,0), (0,0))
-                batch_images = np.pad(batch_images, padSz, 'constant')
-                batch_images = batch_images.astype(np.float32)
+            #if batchSz < F.batch_size:
+            #    padSz = ((0, int(F.batch_size - batchSz)), (0,0), (0,0), (0,0))
+            #    batch_images = np.pad(batch_images, padSz, 'constant')
+            #    batch_images = batch_images.astype(np.float32)
 
-            # zhats = np.random.uniform(-1, 1, size=(F.batch_size, F.z_dim))
             m = 0
             v = 0
 
@@ -342,9 +357,12 @@ class DCGAN(object):
             save_images(np.array(masked_images - np.multiply(np.ones(batch_images.shape), 1.0 - mask)), [nRows,nCols],
                         os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
 
-            zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, \
+            if F.z_init:
+              zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, \
                                        self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
-            
+            else:
+              zhats = np.random.uniform(-1, 1, size=(F.batch_size, F.z_dim))
+            #np.save('zhats.npy', zhats)
 
             for i in xrange(F.nIter):
                 fd = {
@@ -354,8 +372,8 @@ class DCGAN(object):
                     self.z_gen: zhats,
                     self.get_z_init: False
                 }
-                run = [self.complete_loss, self.grad_complete_loss, self.G]
-                loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
+                run = [self.complete_loss, self.contextual_loss, self.perceptual_loss, self.grad_complete_loss,  self.G]
+                loss, c, p,g, G_imgs = self.sess.run(run, feed_dict=fd)
 
                 for img in range(batchSz):
                     with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
@@ -363,7 +381,8 @@ class DCGAN(object):
                         np.savetxt(f, zhats[img:img+1])
 
                 if i % F.outInterval == 0:
-                    print("Iteration: {:04d} |  Loss = {:.6f}".format(i, np.mean(loss[0:batchSz])))
+                    print("Iteration: {:04d} |  Contextual Loss = {:.6f}".format(i, np.mean(c)))
+                    print("                  |  Perceptual Loss = {:.6f}".format( np.mean(p)))
 
                     inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0-mask)
                     completed = inv_masked_hat_images
@@ -410,7 +429,8 @@ class DCGAN(object):
                 else:
                     assert(False)   
 
-            inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)     
+            inv_masked_hat_images = masked_images + np.multiply(G_imgs, 1.0 - mask)
+            blended_images = self.poisson_blend(batch_images, G_imgs, mask)     
             imgName = os.path.join(F.outDir, 'completed/{:02d}_output.png'.format(idx))
             save_images(inv_masked_hat_images[:batchSz,:,:,:], [nRows,nCols], imgName)
 
@@ -419,18 +439,19 @@ class DCGAN(object):
                 if F.save_output_images:
                     scipy.misc.imsave('facenet_i/' + str(im_cnt) + '.png', batch_images[i])
                     scipy.misc.imsave('facenet_o/' + str(im_cnt) + '.png', inv_masked_hat_images[i])
+                    scipy.misc.imsave('facenet_ob/' + str(im_cnt) + '.png', blended_images[i])
                     im_cnt += 1
 
 
-        #     blended_images = self.poisson_blend(batch_images, G_imgs, mask)
-        #     imgName = os.path.join(F.outDir, 'completed/{:02d}_blended.png'.format(idx))
-        #     save_images(blended_images[:batchSz,:,:,:], [nRows,nCols], imgName)
+        #     
+            imgName = os.path.join(F.outDir, 'completed/{:02d}_blended.png'.format(idx))
+            save_images(blended_images[:batchSz,:,:,:], [nRows,nCols], imgName)
             
-        #     for i in range(len(masked_images)):
-        #         psnr_list.append(self.get_psnr(batch_images[i], blended_images[i]))
+            for i in range(len(masked_images)):
+                psnr_list.append(self.get_psnr(batch_images[i], blended_images[i]))
 
-        #     print("After current batch | PSNR before blending::: ",  np.mean(psnr_list2))
-        #     print("After current batch | PSNR after blending::: ",  np.mean(psnr_list))
+            print("After current batch | PSNR before blending::: ",  np.mean(psnr_list2))
+            print("After current batch | PSNR after blending::: ",  np.mean(psnr_list))
 
         # print ('Final | PSNR Before Blending:: ', np.mean(psnr_list2))
         # np.save(F.outDir + '/complete_psnr_after_blend.npy', np.array(psnr_list)) # For statistical testing
@@ -553,6 +574,7 @@ class DCGAN(object):
             return False
 
     def load(self, checkpoint_dir):
+        print("Normal loading !!!!!!!!!!!!!")
         print(" [*] Reading checkpoints...")
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:

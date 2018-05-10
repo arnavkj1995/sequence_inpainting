@@ -39,8 +39,8 @@ def read_and_decode(filename_queue, batch_size):
     
     image = tf.reshape(tf.cast(image, tf.float32), image_shape)
     
-    image.set_shape((128, 128, 3))
-    
+    #image.set_shape((128, 128, 3))
+    image.set_shape((64,64,3))
     images = tf.train.shuffle_batch([image],
                                      batch_size=batch_size,
                                      num_threads=16,

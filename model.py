@@ -33,7 +33,7 @@ class DCGAN(object):
         # main method for training the conditional GAN
         if F.use_tfrecords == True:
             # load images from tfrecords + queue thread runner for better GPU utilization
-            tfrecords_filename = ['train_records/' + x for x in os.listdir('train_records/')]
+            tfrecords_filename = ['train_records_seq/' + x for x in os.listdir('train_records_seq/')]
             filename_queue = tf.train.string_input_producer(
                                 tfrecords_filename, num_epochs=100)
 
@@ -177,15 +177,15 @@ class DCGAN(object):
                         [self.G, self.d_loss, self.g_loss_actual],
                         feed_dict={self.z_gen: sample_z_gen, global_step: counter, self.is_training: False}
                     )
-                    save_images(samples, [8, 8], "initial_images.png")
-                    # save_images(samples, [8, 8],
-                                # F.sample_dir + "/sample_" + str(counter) + ".png")
+                    #save_images(samples, [8, 8], "initial_images.png")
+                    save_images(samples, [8, 8],
+                                 F.sample_dir + "/sample_" + str(counter) + ".png")
                     print("new samples stored!!")
                  
                 # # periodically save checkpoints for future loading
-                # if np.mod(counter, F.saveInterval) == 0:
-                #     self.save(F.checkpoint_dir, counter)
-                #     print("Checkpoint saved successfully !!!")
+                if np.mod(counter, F.saveInterval) == 0:
+                     self.save(F.checkpoint_dir_vid, counter)
+                     print("Checkpoint saved successfully !!!")
 
                 counter += 1
                 idx += 1

@@ -40,7 +40,7 @@ flags.DEFINE_float("lam", 0.1,
                       "lam for impainting")
 
 dataset = "celebA"
-comment ="model_weights_64"
+comment ="model_weights_64_vid"
 
 flags.DEFINE_float(
     "margin", 0.3, "Threshold to judge stopping of D and G nets training")
@@ -59,7 +59,10 @@ else:
                     "Directory name containing the dataset [data]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint/" + dataset + "/" + comment,
                     "Directory name to save the checkpoints [checkpoint]")
-flags.DEFINE_string("sample_dir", "samples/" + dataset,
+
+flags.DEFINE_string("checkpoint_dir_vid", "checkpoint/" + dataset + "/" + "vid/" + comment,
+                    "Directory name to save the checkpoints [checkpoint] during video refinement")
+flags.DEFINE_string("sample_dir", "samples/" + dataset + "/" + "vid/" + comment,
                     "Directory name to save the image samples [samples]")
 flags.DEFINE_string("log_dir", "logs/" + dataset + "/" + comment,
                     "Directory name to save the logs [logs]")
@@ -74,7 +77,7 @@ flags.DEFINE_boolean("use_tfrecords", True, "True for running error concealment 
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
 flags.DEFINE_integer("z_dim", 100, "Dimension of latent vector.")
 flags.DEFINE_integer("sampleInterval", 500, "Dimension of latent vector.")
-flags.DEFINE_integer("saveInterval", 2000, "Dimension of latent vector.")
+flags.DEFINE_integer("saveInterval", 500, "Dimension of latent vector.")
 
 flags.DEFINE_integer("c_dim", 3, "Number of channels in input image")
 flags.DEFINE_boolean("is_grayscale", False, "True for grayscale image")

@@ -30,6 +30,7 @@ def _bytes_feature(value):
 
 def convert_to(images,  name):
     """Converts a dataset to tfrecords."""
+    print("Making tfrecords !!!!")
     rows = images.shape[1]
     cols = images.shape[2]
     depth = images.shape[3]
@@ -50,6 +51,7 @@ def convert_to(images,  name):
         writer.write(example.SerializeToString())
 
     writer.close()
+    print("Done tfrecords!!!")
 
 if __name__ =='__main__':
     if len(sys.argv) != 2:
@@ -66,7 +68,8 @@ if __name__ =='__main__':
     
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(predictor_path)
-    images_dir_path = '../../PreGan/data/data/celebA/img_align_celeba/'
+    #images_dir_path = '../../PreGan/data/data/celebA/img_align_celeba/'
+    images_dir_path = '/home/avisek/arnav/sequence_inpainting/data/video_dataset_images/'
 
     face_image_list = os.listdir(images_dir_path)  # dir of extracted faces
     counter = 0
@@ -76,6 +79,8 @@ if __name__ =='__main__':
 
     for imgs in face_image_list:
         counter += 1
+        if counter % 50 == 0:
+          print(counter, '  images processed')
 
         filename = os.path.join(images_dir_path, imgs) 
           
@@ -96,13 +101,15 @@ if __name__ =='__main__':
             try:
                 face_part = img[d.top():d.bottom(), d.left():d.right()]
                 # print (face_part.shape)
-                face_part = imresize(face_part, (128,128, 3))
+                face_part = imresize(face_part, (64,64, 3))
                 image_list.append(face_part)
             except:
                 continue
             if len(image_list) == 10000:
-                convert_to(np.asarray(image_list), 'celebA_' + str(tfrecord_ind))
+                #convert_to(np.asarray(image_list), 'celebA_' + str(tfrecord_ind))
+                convert_to(np.asarray(image_list), 'vidtimid_' + str(tfrecord_ind))
                 image_list = []
                 tfrecord_ind += 1
         
-    convert_to(np.asarray(image_list), 'celebA_' + str(tfrecord_ind))
+    #convert_to(np.asarray(image_list), 'celebA_' + str(tfrecord_ind))
+    convert_to(np.asarray(image_list), 'vidtimid_' + str(tfrecord_ind))

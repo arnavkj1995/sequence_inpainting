@@ -32,6 +32,8 @@ flags.DEFINE_boolean("teacher_forcing", False,
 					 "True if teacher forcing is enabled")
 flags.DEFINE_boolean("label_to_disc", True,
 					 "True if labels are passed to the discriminator")
+flags.DEFINE_boolean("save_output_images", True,
+					 "True for saving images for facenet loss")
 flags.DEFINE_boolean("conditional", True,
 					 "True if want to train conditional GAN")
 flags.DEFINE_integer("pre_train_iters", 2000,
@@ -39,10 +41,16 @@ flags.DEFINE_integer("pre_train_iters", 2000,
 flags.DEFINE_integer("num_keypoints", 68,
 					  "Number of keypoints extracted in the face")
 # flags.DEFINE_integer('outDir', 'completions', "Directory to save completed images.")
+flags.DEFINE_boolean("z_init", False,
+                                         "True if req to start with pretrain z")
+
 
 dataset = "celebA"
-comment = "model_weights_64_vgg"
-
+#comment = "model_weights_128_vgg"
+#comment = "model_weights_128_vgg_3_4"
+#comment = "model_weights_64_vgg"
+#comment = "model_weights_128_mse"
+comment = "model_weights_64_video_deploy"
 
 """   --meaning for the acronyms for folder names ----
  chkpt
@@ -110,7 +118,7 @@ if dataset == "mnist":
 elif dataset == "lsun" or dataset == "lfw" or dataset == "celebA":
 	flags.DEFINE_integer("c_dim", 3, "Number of channels in input image")
 	flags.DEFINE_boolean("is_grayscale", False, "True for grayscale image")
-	flags.DEFINE_integer("output_size", 64, "True for grayscale image")
+	flags.DEFINE_integer("output_size", 128, "True for grayscale image")
 else:
 	flags.DEFINE_integer("c_dim", 3, "Number of channels in input image")
 	flags.DEFINE_boolean("is_grayscale", False, "True for grayscale image")
@@ -128,6 +136,8 @@ def main(_):
 		os.makedirs(FLAGS.checkpoint_dir)
 	if not os.path.exists(FLAGS.sample_dir):
 		os.makedirs(FLAGS.sample_dir)
+        if not os.path.exists(FLAGS.outDir):
+                os.makedirs(FLAGS.outDir)
 
 	gpu_options = tf.GPUOptions(
 		per_process_gpu_memory_fraction=FLAGS.gpu_frac)
