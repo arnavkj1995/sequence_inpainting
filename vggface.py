@@ -38,10 +38,10 @@ def vgg_face(param_path, input_maps):
             conv = tf.nn.conv2d(current, tf.constant(kernel),
                                 strides=(1, stride[0], stride[0], 1), padding=padding)
             current = tf.nn.bias_add(conv, bias)
-            print name, 'stride:', stride, 'kernel size:', np.shape(kernel)
+            print (name, 'stride:', stride, 'kernel size:', np.shape(kernel))
         elif layer_type == 'relu':
             current = tf.nn.relu(current)
-            print name
+            print (name)
             if name == 'relu5_3':
                 return network
 
@@ -50,10 +50,10 @@ def vgg_face(param_path, input_maps):
             pool = layer[0]['pool'][0][0]
             current = tf.nn.max_pool(current, ksize=(1, pool[0], pool[1], 1),
                                      strides=(1, stride[0], stride[0], 1), padding='SAME')
-            print name, 'stride:', stride
+            print (name, 'stride:', stride)
         elif layer_type == 'softmax':
             current = tf.nn.softmax(tf.reshape(current, [-1, len(class_names)]))
-            print name
+            print (name)
 
         network[name] = current
 

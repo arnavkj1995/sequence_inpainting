@@ -3,7 +3,7 @@ import scipy.misc
 import os
 import sys
 
-from generate_z import DCGAN
+from model_z_init import DCGAN
 from utils import pp
 import tensorflow as tf
 
@@ -22,6 +22,8 @@ flags.DEFINE_float("decay_rate", 0.8, "Decay rate of learning rate")
 flags.DEFINE_float("eps", 1e-5, "Epsilon")
 flags.DEFINE_float("var", 1e-5, "Variance")
 flags.DEFINE_float("gpu_frac", 0.5, "Gpu fraction")
+flags.DEFINE_float("lam", 0.1, "lam for impainting")
+
 flags.DEFINE_integer("no_of_samples", 50,
                      "no of samples for each noise vector Z during policy gradient")
 flags.DEFINE_boolean("teacher_forcing", False,
@@ -36,8 +38,6 @@ flags.DEFINE_integer("num_keypoints", 68,
                       "Number of keypoints extracted in the face")
 flags.DEFINE_integer("num_epochs", 1000,
                       "Number of epochs to train the model")
-flags.DEFINE_float("lam", 0.1,
-                      "lam for impainting")
 
 dataset = "celebA"
 comment ="model_weights_128_vgg_3_4"
@@ -59,6 +59,8 @@ else:
                     "Directory name containing the dataset [data]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint/" + dataset + "/" + comment,
                     "Directory name to save the checkpoints [checkpoint]")
+flags.DEFINE_string("gan_chkpt", "checkpoint/" + dataset + "/" + "model_weights_64_vid", 
+                     "Path of GAN saved checkpoint")
 flags.DEFINE_string("sample_dir", "samples/" + dataset,
                     "Directory name to save the image samples [samples]")
 flags.DEFINE_string("log_dir", "logs/" + dataset + "/" + comment,
@@ -71,6 +73,7 @@ flags.DEFINE_boolean("use_tfrecords", True, "True for running error concealment 
 flags.DEFINE_boolean("vggface_loss", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("error_conceal", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("disc_loss", False, "True for using VGGFace loss")
+flags.DEFINE_boolean("append_masked_keypoints", False, "True for appending keypoints with corrupted image for z init")
 
 flags.DEFINE_integer("batch_size", 64, "The size of batch images [64]")
 flags.DEFINE_integer("z_dim", 100, "Dimension of latent vector.")

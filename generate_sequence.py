@@ -36,39 +36,58 @@ class DCGAN(object):
         # main method for training the conditional GAN
         if F.use_tfrecords == True:
             # load images from tfrecords + queue thread runner for better GPU utilization
-            tfrecords_filename = ['train_records/' + x for x in os.listdir('train_records/')]
-            filename_queue = tf.train.string_input_producer(
-                                tfrecords_filename, num_epochs=100)
+            if F.pseudo_sequences == True:
+                tfrecords_filename = ['train_records/' + x for x in os.listdir('train_records/')]
+                filename_queue = tf.train.string_input_producer(
+                                    tfrecords_filename, num_epochs=100)
 
-            self.images = reader.read_and_decode(filename_queue, F.batch_size)
+                self.images, self.keypoints = reader.read_and_decode(filename_queue, F.batch_size)
 
-            if F.output_size == 64:
-                self.images = tf.image.resize_images(self.images, (64, 64))
+                if F.output_size == 64:
+                    self.images = tf.image.resize_images(self.images, (64, 64))
+                    self.keypoints = tf.image.resize_images(self.keypoints, (64, 64))
 
-            self.images = (self.images / 127.5) - 1
+                self.images = (self.images / 127.5) - 1
+                self.images = tf.tile([self.images], [F.sequence_length, 1, 1, 1, 1])
+                self.images = tf.reshape(self.images, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
+                
+                self.keypoints = (self.keypoints / 127.5) - 1
+                self.keypoints = tf.tile([self.keypoints], [F.sequence_length, 1, 1, 1, 1])
+                self.keypoints = tf.reshape(self.keypoints, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
+            else:
+                tfrecords_filename = ['train_records/' + x for x in os.listdir('train_records/')]
+                filename_queue = tf.train.string_input_producer(
+                                    tfrecords_filename, num_epochs=100)
 
-            self.images = tf.tile([self.images], [F.sequence_length, 1, 1, 1, 1])
-            #self.images = tf.transpose(self.images, [1, 0, 2, 3, 4])
-            self.images = tf.reshape(self.images, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
-            # )
+                self.images, self.keypoints = reader.read_and_decode(filename_queue, F.batch_size)
+
+                if F.output_size == 64:
+                    self.images = tf.image.resize_images(self.images, (64, 64))
+                    self.keypoints = tf.image.resize_images(self.keypoints, (64, 64))
+
+                self.images = (self.images / 127.5) - 1
+                self.keypoints = (self.keypoints / 127.5) - 1
+
         else:    
             self.images = tf.placeholder(tf.float32,
                                         [F.sequence_length * F.batch_size, F.output_size, F.output_size,
                                         F.c_dim],
                                        name='real_images')
-            # self.images = tf.tile([self.images], [F.sequence_length, 1, 1, 1, 1])
-            #self.images = tf.transpose(self.images, [1, 0, 2, 3, 4])
-            # self.images = tf.reshape(self.images, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
+            self.keypoints = tf.placeholder(tf.float32,
+                                        [F.keypoints * F.batch_size, F.output_size, F.output_size,
+                                        F.c_dim],
+                                       name='real_images')
         
         self.mask = tf.placeholder(tf.float32, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3], name='mask')
         self.is_training = tf.placeholder(tf.bool, name='is_training')        
         self.get_z_init = tf.placeholder(tf.bool, name='get_z_init')
 
         self.images_ = tf.multiply(self.mask, self.images)
-        self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(self.images_), lambda: tf.placeholder(tf.float32, [F.batch_size * F.sequence_length, 100], name='z_gen'))
+        if F.append_masked_keypoints == True:
+            self.keypoints_ = tf.multiply(self.mask, self.keypoints)
+            self.images_ = tf.concat([self.images_, self.keypoints_], 3)
 
-        ## LSTM here 
-        self.z_gen = tf.reshape(self.z_gen, [F.sequence_length, F.batch_size, 100])
+        self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(self.images_), lambda: tf.placeholder(tf.float32, [F.batch_size * F.sequence_length, 100], name='z_gen'))
 
         with tf.variable_scope('Z/z_lstm'):
             rnn_cell = tf.contrib.rnn.LSTMCell(F.n_hidden)

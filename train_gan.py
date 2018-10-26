@@ -3,7 +3,7 @@ import scipy.misc
 import os
 import sys
 
-from model import DCGAN
+from model_gan import DCGAN
 from utils import pp
 import tensorflow as tf
 

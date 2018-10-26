@@ -7,7 +7,6 @@ import os
 import sys
 import dlib
 import glob
-import h5py
 from skimage import io
 import time
 import numpy as np
@@ -17,8 +16,6 @@ import cv2
 from scipy.misc import imsave, imresize
 
 import tensorflow as tf
-
-from tensorflow.contrib.learn.python.learn.datasets import mnist
 
 FLAGS = None
 
@@ -80,7 +77,7 @@ if __name__ =='__main__':
     for imgs in face_image_list:
         counter += 1
         if counter % 50 == 0:
-          print(counter, '  images processed')
+          print(counter, 'images processed')
 
         filename = os.path.join(images_dir_path, imgs) 
           
