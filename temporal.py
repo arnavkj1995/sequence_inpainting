@@ -141,7 +141,7 @@ def main(_):
 
 	with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
 		dcgan = DCGAN(sess)
-		dcgan.complete()
+		dcgan.temporal()
 
 if __name__ == '__main__':
 	tf.app.run()
