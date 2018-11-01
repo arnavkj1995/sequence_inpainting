@@ -74,7 +74,7 @@ class DCGAN(object):
                                         F.c_dim],
                                        name='real_images')
             self.keypoints = tf.placeholder(tf.float32,
-                                        [F.keypoints * F.batch_size, F.output_size, F.output_size,
+                                        [F.sequence_length * F.batch_size, F.output_size, F.output_size,
                                         F.c_dim],
                                        name='real_images')
         
@@ -85,9 +85,13 @@ class DCGAN(object):
         self.images_ = tf.multiply(self.mask, self.images)
         if F.append_masked_keypoints == True:
             self.keypoints_ = tf.multiply(self.mask, self.keypoints)
-            self.images_ = tf.concat([self.images_, self.keypoints_], 3)
+            # self.images_ = tf.concat([self.images_, self.keypoints_], 3)
+            self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(tf.concat([self.images_, self.keypoints_], 3)), lambda: tf.placeholder(tf.float32, [F.batch_size * F.sequence_length, 100], name='z_gen'))
+        else:
+            self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(self.images_), lambda: tf.placeholder(tf.float32, [F.batch_size * F.sequence_length, 100], name='z_gen'))
 
-        self.z_gen = tf.cond(self.get_z_init, lambda: self.generate_z(self.images_), lambda: tf.placeholder(tf.float32, [F.batch_size * F.sequence_length, 100], name='z_gen'))
+        ## LSTM here 
+        self.z_gen = tf.reshape(self.z_gen, [F.sequence_length, F.batch_size, 100])
 
         with tf.variable_scope('Z/z_lstm'):
             rnn_cell = tf.contrib.rnn.LSTMCell(F.n_hidden)
@@ -210,10 +214,11 @@ class DCGAN(object):
                 if np.mod(counter, F.saveInterval) == 1:
                     self.save(F.checkpoint_dir, counter)
                     print("Checkpoint saved successfully !!!")
-                    save_imgs, save_opts = self.sess.run([self.images_, self.G], feed_dict={global_step: counter, self.mask: masks, self.is_training: False, self.get_z_init: True})
+                    save_imgs, save_kypts, save_opts = self.sess.run([self.images_, self.keypoints_, self.G], feed_dict={global_step: counter, self.mask: masks, self.is_training: False, self.get_z_init: True})
 
                     # save_images(save_imgs, [8, 8], "samples_imgs" + str(counter) + ".png")
                     save_images(save_imgs, [8, 8], "z_gens/samples_imgs" + str(counter) + ".png")
+                    save_images(save_kypts, [8, 8], "z_gens/samples_kypts" + str(counter) + ".png")
                     save_images(save_opts, [8, 8], "z_gens/samples_opts" + str(counter) + ".png")
 
                 counter += 1

@@ -71,6 +71,8 @@ flags.DEFINE_boolean("use_tfrecords", True, "True for running error concealment 
 flags.DEFINE_boolean("vggface_loss", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("error_conceal", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("disc_loss", False, "True for using VGGFace loss")
+flags.DEFINE_boolean("pseudo_sequences", True, "True for training on pseudo sequences")
+flags.DEFINE_boolean("append_masked_keypoints", True, "True for appending masked keypoints")
 
 flags.DEFINE_integer("batch_size", 8, "The size of batch images [8]")
 flags.DEFINE_integer("sequence_length", 8, "The size of sequene [8]")
