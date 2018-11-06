@@ -397,7 +397,7 @@ class DCGAN(object):
                         os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
 
             zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, self.keypoints: batch_keypoints, \
-                                       self.mask: mask, self.is_training: False, self.get_z_init: True})[0]
+                                       self.mask: mask, self.is_training: False, self.get_z_init: True})
             
 
             # if F.z_init:
@@ -479,7 +479,7 @@ class DCGAN(object):
                 psnr_list2.append(self.get_psnr(batch_images[i], inv_masked_hat_images[i]))
 
 
-            blended_images = self.poisson_blend(batch_images, G_imgs, mask)
+            blended_images = self.poisson_blend2(batch_images, G_imgs, mask)
             imgName = os.path.join(F.outDir, 'completed/{:02d}_blended.png'.format(idx))
             save_images(blended_images[:batchSz,:,:,:], [nRows,nCols], imgName)
             
