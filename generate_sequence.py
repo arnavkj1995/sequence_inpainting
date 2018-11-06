@@ -100,10 +100,11 @@ class DCGAN(object):
             outputs = tf.reshape(outputs, [F.sequence_length * F.batch_size, 100])
             self.z_gen = tf.nn.tanh(linear(outputs, 100, 'z_lin_lstm'))
         
-        self.G = self.generator(self.z_gen)
+        self.z_gen = tf.reshape(self.z_gen, [F.sequence_length * F.batch_size, 100])
+        self.G = self.generator(self.z_gen, self.keypoints)
 
-        self.D, self.D_logits = self.discriminator(self.images, reuse=False)
-        self.D_, self.D_logits_, = self.discriminator(self.G, reuse=True)
+        self.D, self.D_logits = self.discriminator(self.images, self.keypoints, reuse=False)
+        self.D_, self.D_logits_, = self.discriminator(self.G, self.keypoints, reuse=True)
 
         if F.error_conceal == True:
             self.g_loss_actual = tf.reduce_mean(
@@ -173,7 +174,7 @@ class DCGAN(object):
 
         start_time = time.time()
 
-        self.load_G("checkpoint/celebA/model_weights_" + str(F.output_size))
+        self.load_G(F.gan_chkpt)
 
         if F.load_chkpt:
             try:
@@ -234,7 +235,7 @@ class DCGAN(object):
         coord.join(threads)
         return out.astype(np.float32)
 
-    def next_mask(self):
+    def get_masks(self):
         masks = []
         for i in range(F.batch_size * F.sequence_length):
             masks.append(self.create_mask(temporal=True))
@@ -344,26 +345,37 @@ class DCGAN(object):
 
         assert(isLoaded)
 
-        files = os.listdir('test_images/') #path of held out images for inpainitng experiment
+        img_data_path = 'data/samples_complete/'
+        files = os.listdir(img_data_path) #path of held out images for inpainitng experiment
         print("Total files to inpaint :", len(files))
         imgs = [x for x in files if 'img' in x]
+        keys = [x.replace('img', 'ky') for x in imgs]
         nImgs = len(imgs)
 
         batch_idxs = int(np.ceil(nImgs / F.batch_size))
         print("Total batches:::", batch_idxs)
-        mask = self.create_mask()
-
-        img_data_path = 'test_images/'
+        mask = np.array([self.create_mask()] * F.batch_size * F.sequence_length)
 
         psnr_list, psnr_list2 = [], []
         for idx in xrange(0, batch_idxs):
             print("Processing batch number:  ", idx)
             l = idx * F.batch_size
             u = min((idx + 1) * F.batch_size, nImgs)
-            batchSz = u - l
+            batchSz = F.sequence_length * F.batch_size
             batch_files = imgs[l:u]
+
             batch_images = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
                                    for batch_file in batch_files]).astype(np.float32)
+
+            batch_files = keys[l:u]
+            batch_keypoints = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
+                                      for batch_file in batch_files]).astype(np.float32)
+
+            batch_images = np.tile([batch_images], [F.sequence_length, 1, 1, 1, 1])
+            batch_images = np.reshape(batch_images, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
+
+            batch_keypoints = np.tile([batch_keypoints], [F.sequence_length, 1, 1, 1, 1])
+            batch_keypoints = np.reshape(batch_keypoints, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
 
             if batchSz < F.batch_size:
                 padSz = ((0, int(F.batch_size - batchSz)), (0,0), (0,0), (0,0))
@@ -378,18 +390,27 @@ class DCGAN(object):
             nCols = min(8, batchSz)
             save_images(batch_images[:batchSz,:,:,:], [nRows,nCols],
                         os.path.join(F.outDir, 'before_' + str(idx) + '.png'))
+            
             masked_images = np.multiply(batch_images, mask)# - np.multiply(np.ones(batch_images.shape), 1.0 - mask)
-            save_images(np.array(masked_images - np.multiply(np.ones(batch_images.shape), 1.0 - mask)), [nRows,nCols],
+            print (masked_images.shape)
+            save_images(np.array(masked_images - np.multiply(np.ones(mask.shape), 1.0 - mask)), [nRows,nCols],
                         os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
 
-            zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, \
-                                       self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
+            zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, self.keypoints: batch_keypoints, \
+                                       self.mask: mask, self.is_training: False, self.get_z_init: True})[0]
             
+
+            # if F.z_init:
+            #     zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, \
+            #                            self.mask: [mask] * F.batch_size, self.is_training: False, self.get_z_init: True})
+            # else:
+            #     zhats = np.random.uniform(-1, 1, size=(F.batch_size, F.z_dim))
 
             # for i in xrange(F.nIter):
             #     fd = {
-            #         self.mask: [mask] * F.batch_size,
+            #         self.mask: mask,
             #         self.images: batch_images,
+            #         self.keypoints: batch_keypoints,
             #         self.is_training: False,
             #         self.z_gen: zhats,
             #         self.get_z_init: False
@@ -397,6 +418,7 @@ class DCGAN(object):
             #     run = [self.complete_loss, self.grad_complete_loss, self.G]
             #     loss, g, G_imgs = self.sess.run(run, feed_dict=fd)
 
+            #     print (G_imgs.shape, masked_images.shape)
             #     for img in range(batchSz):
             #         with open(os.path.join(F.outDir, 'logs/hats_{:02d}.log'.format(img)), 'ab') as f:
             #             f.write('{} {} '.format(i, loss[img]).encode())
@@ -495,11 +517,12 @@ class DCGAN(object):
         isLoaded = self.load(F.checkpoint_dir)
         assert(isLoaded)
 
-        files = os.listdir('test_images/')
-        imgs = [x for x in files if 'im' in x][:64]
+        img_data_path = 'data/samples_complete/'
+        files = os.listdir(img_data_path) #path of held out images for inpainitng experiment
+        print("Total files to inpaint :", len(files))
+        imgs = [x for x in files if 'img' in x]
         keys = [x.replace('img', 'ky') for x in imgs]
         nImgs = len(imgs)
-        batch_idxs = int(np.ceil(nImgs / int(F.batch_size / 8)))
 
         masks = []
         for i in range(int(F.sequence_length)):
@@ -512,7 +535,9 @@ class DCGAN(object):
         # for i in range(F.batch_size * F.sequence_length):
         #     mask[i] = masks[i % F.sequence_length]
 
-        img_data_path = 'test_images/'
+        batch_idxs = int(np.ceil(nImgs / F.batch_size))
+        print("Total batches:::", batch_idxs)
+
         psnr_list, psnr_list2 = [], []
         for idx in xrange(0, batch_idxs):  # because in a batch we are taking 8 images instead of 64
             print("Processing batch {:03d} out of {:03d}".format(idx,  batch_idxs))
@@ -520,12 +545,25 @@ class DCGAN(object):
             batchSz = F.batch_size * F.sequence_length
             l = idx * batch_size
             u = min((idx + 1) * batch_size, nImgs)
+            batchSz = F.sequence_length * F.batch_size
+
             batch_files = imgs[l:u]
             batch_images = np.array([get_image(img_data_path + batch_files[int(i)], F.output_size, is_crop=self.is_crop)
                      for i in range(len(batch_files))]).astype(np.float32)
 
+            batch_files = keys[l:u]
+            batch_keypoints = np.array([get_image(img_data_path + batch_file, F.output_size, is_crop=self.is_crop)
+                                      for batch_file in batch_files]).astype(np.float32)
+
             nRows = np.ceil(batchSz / 8)
             nCols = min(8, batchSz)
+
+            batch_images = np.tile([batch_images], [F.sequence_length, 1, 1, 1, 1])
+            batch_images = np.reshape(batch_images, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
+
+            batch_keypoints = np.tile([batch_keypoints], [F.sequence_length, 1, 1, 1, 1])
+            batch_keypoints = np.reshape(batch_keypoints, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3])
+
 
             if batchSz < F.batch_size:
                 print(batchSz)
@@ -539,8 +577,6 @@ class DCGAN(object):
             nRows = np.ceil(batchSz / 8)
             nCols = min(8, batchSz)
 
-            batch_images = np.repeat(np.array([batch_images]), F.sequence_length, axis=0)
-            batch_images = np.reshape(batch_images, (F.sequence_length * F.batch_size, F.output_size, F.output_size, 3))
             save_images(batch_images[:batchSz,:,:,:], [nRows,nCols],
                         os.path.join(F.outDir, 'before_' + str(idx) + '.png'))
             masked_images = np.multiply(batch_images, mask)# - np.multiply(np.ones(batch_images.shape), 1.0 - mask)
@@ -548,7 +584,7 @@ class DCGAN(object):
                         os.path.join(F.outDir, 'mask_' + str(idx) + '.png'))
 
             print (mask.shape, batch_images.shape)
-            zhats, G_imgs, masked_images, batch_images = self.sess.run([self.z_gen, self.G, self.images_, self.images], feed_dict = {self.images: batch_images, \
+            zhats, G_imgs = self.sess.run([self.z_gen, self.G], feed_dict = {self.images: batch_images, self.keypoints: batch_keypoints, \
                                         self.mask: mask, self.is_training: False, self.get_z_init: True})
 
             # save_images(batch_images[:batchSz,:,:,:], [nRows,nCols],
@@ -614,43 +650,20 @@ class DCGAN(object):
     def get_mse(self, img_true, img_gen):
         return compare_mse(img_true.astype(np.float32), img_gen.astype(np.float32))
 
-    def generator(self, z):
-        dim = 64
-        k = 5
-
-        bsz = F.batch_size * F.sequence_length
-        with tf.variable_scope("G"):
-              s2, s4, s8, s16 = int(F.output_size / 2), int(F.output_size / 4), int(F.output_size / 8), int(F.output_size / 16)
-
-              h0 = linear(z, s16 * s16 * dim * 16, 'g_lin')
-              h0 = tf.reshape(h0, [bsz, s16, s16, dim * 16])
-
-              h1 = deconv2d(h0, [bsz, s8, s8, dim * 8], k, k, 2, 2, name = 'g_deconv1')
-              h1 = tf.nn.relu(batch_norm(name = 'g_bn1')(h1, self.is_training))
-                      
-              h2 = deconv2d(h1, [bsz, s4, s4, dim * 4], k, k, 2, 2, name = 'g_deconv2')
-              h2 = tf.nn.relu(batch_norm(name = 'g_bn2')(h2, self.is_training))
-
-              h3 = deconv2d(h2, [bsz, s2, s2, dim * 2], k, k, 2, 2, name = 'g_deconv4')
-              h3 = tf.nn.relu(batch_norm(name = 'g_bn3')(h3, self.is_training))
-
-              h4 = deconv2d(h3, [bsz, F.output_size, F.output_size, 3], k, k, 2, 2, name ='g_hdeconv5')
-              h4 = tf.nn.tanh(h4, name = 'g_tanh')
-              return h4
-
-    def discriminator(self, image, reuse=False):
+    def discriminator(self, image, keypoints, reuse=False):
         with tf.variable_scope('D'):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
 
             dim = 64
+            image = tf.concat([image, keypoints], 3)
             if F.output_size == 128:
                   h0 = lrelu(conv2d(image, dim, name='d_h0_conv'))
                   h1 = lrelu(batch_norm(name='d_bn1')(conv2d(h0, dim * 2, name='d_h1_conv'), self.is_training))
                   h2 = lrelu(batch_norm(name='d_bn2')(conv2d(h1, dim * 4, name='d_h2_conv'), self.is_training))
                   h3 = lrelu(batch_norm(name='d_bn3')(conv2d(h2, dim * 8, name='d_h3_conv'), self.is_training))
                   h4 = lrelu(batch_norm(name='d_bn4')(conv2d(h3, dim * 16, name='d_h4_conv'), self.is_training))
-                  h4 = tf.reshape(h4, [F.batch_size * F.sequence_length, -1])
+                  h4 = tf.reshape(h4, [F.sequence_length * F.batch_size, -1])
                   h5 = linear(h4, 1, 'd_h5_lin')
                   return tf.nn.sigmoid(h5), h5
 
@@ -659,9 +672,39 @@ class DCGAN(object):
                   h1 = lrelu(batch_norm(name='d_bn1')(conv2d(h0, dim * 2, name='d_h1_conv'), self.is_training))
                   h2 = lrelu(batch_norm(name='d_bn2')(conv2d(h1, dim * 4, name='d_h2_conv'), self.is_training))
                   h3 = lrelu(batch_norm(name='d_bn3')(conv2d(h2, dim * 8, name='d_h3_conv'), self.is_training))
-                  h4 = tf.reshape(h3, [F.batch_size * F.sequence_length, -1])
+                  h4 = tf.reshape(h3, [F.sequence_length * F.batch_size, -1])
                   h5 = linear(h4, 1, 'd_h5_lin')
                   return tf.nn.sigmoid(h5), h5
+
+    def generator(self, z, keypoints):
+        dim = 64
+        k = 5
+        with tf.variable_scope("G"):
+              s2, s4, s8, s16 = int(F.output_size / 2), int(F.output_size / 4), int(F.output_size / 8), int(F.output_size / 16)
+              z = tf.reshape(z, [F.sequence_length * F.batch_size, 1, 1, 100])
+              z = tf.tile(z, [1, F.output_size, F.output_size, 1])
+              z = tf.concat([z, keypoints], 3)
+
+              h0 = z
+            
+              h1 = tf.nn.relu(batch_norm(name='g_bn1')(conv2d(h0, dim * 2, 5, 5, 1, 1, name='g_h1_conv'), self.is_training))
+              h2 = tf.nn.relu(batch_norm(name='g_bn2')(conv2d(h1, dim * 2, k, k, 2, 2, name='g_h2_conv'), self.is_training))
+              h3 = tf.nn.relu(batch_norm(name='g_bn3')(conv2d(h2, dim * 4, k, k, 2, 2, name='g_h3_conv'), self.is_training))
+              h4 = tf.nn.relu(batch_norm(name='g_bn4')(conv2d(h3, dim * 8, k, k, 2, 2, name='g_h4_conv'), self.is_training))
+              h5 = tf.nn.relu(batch_norm(name='g_bn5')(conv2d(h4, dim * 16, k, k, 2, 2, name='g_h5_conv'), self.is_training))
+
+              h6 = deconv2d(h5, [F.sequence_length * F.batch_size, s8, s8, dim * 8], k, k, 2, 2, name = 'g_deconv1')
+              h6 = tf.nn.relu(batch_norm(name = 'g_bn6')(h6, self.is_training))
+                      
+              h7 = deconv2d(h6, [F.sequence_length * F.batch_size, s4, s4, dim * 4], k, k, 2, 2, name = 'g_deconv2')
+              h7 = tf.nn.relu(batch_norm(name = 'g_bn7')(h7, self.is_training))
+
+              h8 = deconv2d(h7, [F.sequence_length * F.batch_size, s2, s2, dim * 2], k, k, 2, 2, name = 'g_deconv4')
+              h8 = tf.nn.relu(batch_norm(name = 'g_bn8')(h8, self.is_training))
+
+              h9 = deconv2d(h8, [F.sequence_length * F.batch_size, F.output_size, F.output_size, 3], k, k, 2, 2, name ='g_hdeconv5')
+              h9 = tf.nn.tanh(h9, name = 'g_tanh')
+              return h9
 
     def generate_z(self, image):
         with tf.variable_scope('Z'):
@@ -672,7 +715,7 @@ class DCGAN(object):
                   h2 = lrelu(batch_norm(name='z_bn2')(conv2d(h1, dim * 4, name='z_h2_conv'), self.is_training))
                   h3 = lrelu(batch_norm(name='z_bn3')(conv2d(h2, dim * 8, name='z_h3_conv'), self.is_training))
                   h4 = lrelu(batch_norm(name='z_bn4')(conv2d(h3, dim * 16, name='z_h4_conv'), self.is_training))
-                  h4 = tf.reshape(h4, [F.batch_size * F.sequence_length, -1])
+                  h4 = tf.reshape(h4, [F.sequence_length * F.batch_size, -1])
                   h5 = linear(h4, 100, 'z_h5_lin')
                   return tf.nn.tanh(h5)
 
@@ -681,7 +724,7 @@ class DCGAN(object):
                   h1 = lrelu(batch_norm(name='z_bn1')(conv2d(h0, dim * 2, name='z_h1_conv'), self.is_training))
                   h2 = lrelu(batch_norm(name='z_bn2')(conv2d(h1, dim * 4, name='z_h2_conv'), self.is_training))
                   h3 = lrelu(batch_norm(name='z_bn3')(conv2d(h2, dim * 8, name='z_h3_conv'), self.is_training))
-                  h4 = tf.reshape(h3, [F.batch_size * F.sequence_length, -1])
+                  h4 = tf.reshape(h3, [F.sequence_length * F.batch_size, -1])
                   h5 = linear(h4, 100, 'z_h5_lin')
                   return tf.nn.tanh(h5)
 

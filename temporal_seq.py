@@ -2,9 +2,11 @@ import numpy as np
 import scipy.misc
 import os
 import sys
+sys.path.append('../')
 
 from generate_sequence import DCGAN
 from utils import pp
+
 import tensorflow as tf
 
 flags = tf.app.flags
@@ -36,8 +38,6 @@ flags.DEFINE_integer("num_keypoints", 68,
                       "Number of keypoints extracted in the face")
 flags.DEFINE_integer("num_epochs", 1000,
                       "Number of epochs to train the model")
-flags.DEFINE_float("lam", 0.1,
-                      "lam for impainting")
 
 dataset = "celebA"
 comment ="model_weights_64_seq_mse"
@@ -63,15 +63,15 @@ flags.DEFINE_string("sample_dir", "samples/" + dataset,
                     "Directory name to save the image samples [samples]")
 flags.DEFINE_string("log_dir", "logs/" + dataset + "/" + comment,
                     "Directory name to save the logs [logs]")
-flags.DEFINE_string("gan_chkpt", "checkpoint/celebA/model_weights_64_vid",
-                    "Directory where GAN checkpoints are saved")
+flags.DEFINE_string('approach', 'adam', 'Approach for back tracking in z-space')
+
 flags.DEFINE_boolean("load_chkpt", False, "True for loading saved checkpoint")
 flags.DEFINE_boolean("inc_score", False, "True for computing inception score")
 flags.DEFINE_boolean("gauss_noise", False, "True for adding noise to disc input")
 flags.DEFINE_boolean("flip_label", False, "True for flipping the labels")
-flags.DEFINE_boolean("use_tfrecords", True, "True for running error concealment part")
+flags.DEFINE_boolean("use_tfrecords", False, "True for running error concealment part")
 flags.DEFINE_boolean("vggface_loss", False, "True for using VGGFace loss")
-flags.DEFINE_boolean("error_conceal", False, "True for using VGGFace loss")
+flags.DEFINE_boolean("error_conceal", True, "True for using VGGFace loss")
 flags.DEFINE_boolean("disc_loss", False, "True for using VGGFace loss")
 flags.DEFINE_boolean("pseudo_sequences", True, "True for training on pseudo sequences")
 flags.DEFINE_boolean("append_masked_keypoints", True, "True for appending masked keypoints")
@@ -87,41 +87,41 @@ flags.DEFINE_integer("c_dim", 3, "Number of channels in input image")
 flags.DEFINE_boolean("is_grayscale", False, "True for grayscale image")
 flags.DEFINE_integer("output_size", 64, "True for grayscale image")
 
-# flags.DEFINE_float('lr',0.01, 'lr for z')
-# flags.DEFINE_float('beta1',0.9, 'beta1')
-# flags.DEFINE_float('beta2',0.999, 'beta2')
-# # flags.DEFINE_float('eps',1e-8, 'eps')
-# flags.DEFINE_float('hmcBeta', 0.2, "hmcBeta")
-# flags.DEFINE_float('hmcEps', 0.001, "hmcEps")
-# flags.DEFINE_integer('hmcL', 100, "hmcL")
-# flags.DEFINE_integer('hmcAnneal', 1, "hmcAnneal")
-# flags.DEFINE_integer('nIter', 1500, "nIter")
-# flags.DEFINE_float('lam', 0.1, "lam")
-# flags.DEFINE_string('outDir', 'completions_results', "Directory to save completed images.")
-# flags.DEFINE_integer('outInterval', 100, 'outInterval')
-# flags.DEFINE_string('maskType', 'center', 'maskType')
-# flags.DEFINE_float('centerScale', 0.25, 'centerScale')
-# flags.DEFINE_string('imgs', ' ', 'Images list')
+flags.DEFINE_float('lr',0.001, 'lr for z')
+flags.DEFINE_float('beta1',0.9, 'beta1')
+flags.DEFINE_float('beta2',0.999, 'beta2')
+# flags.DEFINE_float('eps',1e-8, 'eps')
+flags.DEFINE_float('hmcBeta', 0.2, "hmcBeta")
+flags.DEFINE_float('hmcEps', 0.001, "hmcEps")
+flags.DEFINE_integer('hmcL', 100, "hmcL")
+flags.DEFINE_integer('hmcAnneal', 1, "hmcAnneal")
+flags.DEFINE_integer('nIter', 100, "nIter")
+flags.DEFINE_float('lam', 0.01, "lam")
+flags.DEFINE_string('outDir', 'completions_results_video_conf', "Directory to save completed images.")
+flags.DEFINE_integer('outInterval', 10, 'outInterval')
+flags.DEFINE_string('maskType', 'checkboard', 'maskType')
+flags.DEFINE_float('centerScale', 0.15, 'centerScale')
+flags.DEFINE_string('imgs', ' ', 'Images list')
+
 
 FLAGS = flags.FLAGS
 
 def main(_):
-    pp.pprint(flags.FLAGS.__flags)
+	pp.pprint(flags.FLAGS.__flags)
 
-    if not os.path.exists(FLAGS.checkpoint_dir):
-        os.makedirs(FLAGS.checkpoint_dir)
-    if not os.path.exists(FLAGS.sample_dir):
-        os.makedirs(FLAGS.sample_dir)
+	if not os.path.exists(FLAGS.checkpoint_dir):
+		os.makedirs(FLAGS.checkpoint_dir)
+	if not os.path.exists(FLAGS.sample_dir):
+		os.makedirs(FLAGS.sample_dir)
+		if not os.path.exists(FLAGS.outDir):
+			os.makedirs(FLAGS.outDir)
 
-    gpu_options = tf.GPUOptions(
-        per_process_gpu_memory_fraction=FLAGS.gpu_frac)
+	gpu_options = tf.GPUOptions(
+		per_process_gpu_memory_fraction=FLAGS.gpu_frac)
 
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    
-    with tf.Session(config = tf.ConfigProto(gpu_options=gpu_options)) as sess:
-        dcgan = DCGAN(sess)
-        dcgan.train()
+	with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+		dcgan = DCGAN(sess)
+		dcgan.temporal_consistency()
 
 if __name__ == '__main__':
-    tf.app.run()
+	tf.app.run()

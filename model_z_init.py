@@ -221,7 +221,7 @@ class DCGAN(object):
 	def create_mask(self, centerScale=None, temporal=False, check_size=16):
 		# specifically creates random sized/designed mask for consistency experiemnts
 		mask_dict = {'freehand_poly': 0, 'center': 1, 'checkboard': 2, 'random': 3, 'left': 4, 'right' : 5, 'top' : 6, 'bottom' : 7}
-		if F.error_conceal == False:
+		if F.error_conceal == False or temporal == True:
 			maskType = np.random.randint(0, 8)
 		else:
 			maskType = mask_dict[F.maskType]
